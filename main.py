@@ -47,24 +47,15 @@ class QueryResponse(BaseModel):
 @app.post("/query", response_model=QueryResponse)
 async def query_openai(request: QueryRequest):
     try:
-        chat_completion = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {
-                    "role": "user",
-                    "content": "Write a haiku about recursion in programming."
-                }
-            ]
-        )
-
-        return QueryResponse(response=chat_completion.choices[0].message['content'])
+        # Instead of querying OpenAI, just return the dummy response
+        return QueryResponse(response="I am a simple bot and do not have any responses yet!")
     
     except openai.RateLimitError as e:  # Catch API errors
         raise HTTPException(status_code=499, detail=f"OpenAI API error: {str(e)}")
     
     except Exception as e:  # Handle other potential errors
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
 
 # Root endpoint
 @app.get("/")
