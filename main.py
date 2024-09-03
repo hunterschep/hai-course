@@ -17,7 +17,6 @@ client = OpenAI()
 
 # Load OpenAI API key from environment variable
 api_key = os.environ.get("OPENAI_API_KEY")
-print(f"Loaded API Key: {api_key}")  # Correctly print the loaded API key
 
 if not api_key:
     raise HTTPException(status_code=500, detail="OpenAI API key is missing")
