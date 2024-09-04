@@ -49,43 +49,50 @@ function App() {
   }, [chatHistory]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-r from-blue-500 to-purple-500 flex items-center justify-center p-4">
-      <div className="bg-white w-full max-w-3xl rounded-xl shadow-lg p-6">
-        <h1 className="text-3xl text-center font-semibold mb-6 text-gray-800">Chat with Simple Bot</h1>
-        <div className="overflow-y-auto h-80 mb-5 p-4 border border-gray-200 rounded-lg bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-r from-indigo-500 to-purple-500 flex items-center justify-center p-4">
+      <div className="bg-white w-full max-w-2xl rounded-lg shadow-lg p-6 space-y-6">
+        <h1 className="text-3xl text-center font-bold text-gray-900">Chat with Simple Bot</h1>
+        <div className="overflow-y-auto h-80 mb-5 p-4 border border-gray-200 rounded-lg bg-gray-50 shadow-inner">
           {chatHistory.length === 0 ? (
             <p className="text-gray-500 text-center">No messages yet. Start the conversation!</p>
           ) : (
             chatHistory.map((chat, index) => (
               <div key={index} className={`flex ${chat.sender === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
-                <div className={`flex items-center ${chat.sender === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-300 text-black'} rounded-xl p-4 max-w-xs shadow w-full break-words`}>
-                  <div className="mr-3 flex-shrink-0">
-                    <img 
-                      src="/user.png" 
-                      alt="User" 
-                      className="w-10 h-10 rounded-full object-cover"
-                    />
-                  </div>
-                  <div className="text-base w-full break-words">
+                {chat.sender === 'bot' && (
+                  <img 
+                    src="/user.png" 
+                    alt="Bot" 
+                    className="w-8 h-8 rounded-full object-cover mr-3"
+                  />
+                )}
+                <div className={`flex items-center ${chat.sender === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-black'} rounded-lg p-3 max-w-fit shadow w-auto`}>
+                  <div className="text-base break-words">
                     {chat.message}
                   </div>
                 </div>
+                {chat.sender === 'user' && (
+                  <img 
+                    src="/user.png" 
+                    alt="User" 
+                    className="w-8 h-8 rounded-full object-cover ml-3"
+                  />
+                )}
               </div>
             ))
           )}
           <div ref={chatEndRef} />
         </div>
-        <div className="flex mt-4">
+        <div className="flex">
           <input 
             type="text" 
-            placeholder="Type your message here..." 
+            placeholder="Type your message..." 
             value={message} 
             onChange={handleMessage} 
             onKeyPress={handleKeyPress} 
-            className="flex-grow p-4 border border-gray-300 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-grow p-4 border border-gray-300 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-200"
           />
           <button 
-            className="bg-blue-500 text-white px-6 py-4 rounded-r-lg hover:bg-blue-600 transition duration-200" 
+            className="bg-indigo-600 text-white px-6 py-4 rounded-r-lg hover:bg-indigo-700 transition duration-200" 
             onClick={sendMessage}
           >
             Send
