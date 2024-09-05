@@ -1,6 +1,4 @@
 from fastapi import FastAPI, HTTPException
-from fastapi.staticfiles import StaticFiles
-from starlette.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import openai
@@ -29,11 +27,8 @@ app.add_middleware(
     allow_origins=["*"],  # Adjust this to restrict allowed origins
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*"]
 )
-
-# Mount the static directory
-app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
 
 # Define request and response models
 class QueryRequest(BaseModel):
@@ -41,7 +36,6 @@ class QueryRequest(BaseModel):
 
 class QueryResponse(BaseModel):
     response: str
-
 
 @app.post("/query", response_model=QueryResponse)
 async def query_openai(request: QueryRequest):
@@ -55,8 +49,7 @@ async def query_openai(request: QueryRequest):
     except Exception as e:  # Handle other potential errors
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
-
 # Root endpoint
 @app.get("/")
 async def read_root():
-    return FileResponse('static/index.html')
+    return {"message": "API is running"}

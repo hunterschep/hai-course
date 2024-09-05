@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 
 const url = process.env.NODE_ENV === 'production' 
-  ? 'https://course-tools-demo.onrender.com/' 
+  ? 'https://hai-fastapi.vercel.app/' 
   : 'http://127.0.0.1:8000/';
 
 function App() {
