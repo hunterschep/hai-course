@@ -5,7 +5,10 @@
     }],
     "routes": [{
       "src": "/(.*)",
-      "dest": "./main.py" 
-    }]
+      "dest": "./main.py"
+    }],
+    "ignore": [
+      "client/**/*"
+    ]
   }
   
