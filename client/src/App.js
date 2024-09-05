@@ -60,7 +60,7 @@ function App() {
               <div key={index} className={`flex ${chat.sender === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
                 {chat.sender === 'bot' && (
                   <img 
-                    src="/user.png" 
+                    src={`${process.env.PUBLIC_URL}/user.png`} 
                     alt="Bot" 
                     className="w-8 h-8 rounded-full object-cover mr-3"
                   />
@@ -72,10 +72,10 @@ function App() {
                 </div>
                 {chat.sender === 'user' && (
                   <img 
-                    src="/user.png" 
+                    src={`${process.env.PUBLIC_URL}/user.png`} 
                     alt="User" 
                     className="w-8 h-8 rounded-full object-cover ml-3"
-                  />
+                  /> 
                 )}
               </div>
             ))
