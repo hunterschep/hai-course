@@ -39,6 +39,13 @@ class QueryResponse(BaseModel):
 
 @app.post("/query", response_model=QueryResponse)
 async def query_openai(request: QueryRequest):
+    # Notes on GPT API 
+    # System -> Chatbot
+    # Temperature -> Controls randomness of responses
+    # Max tokens -> Tokenizer 
+    # Input formatting -> Can use XML or other formats
+    # Output formatting -> Can return JSON object
+    # Structured output -> Can use class using pydantic library
     try:
         # Instead of querying OpenAI, just return the dummy response
         return QueryResponse(response="I am a simple bot and do not have any responses yet!")
