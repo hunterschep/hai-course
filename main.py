@@ -5,6 +5,7 @@ import openai
 from openai import OpenAI
 from dotenv import load_dotenv
 import os
+import json
 
 # Load environment variables from .env file
 load_dotenv()
@@ -33,27 +34,88 @@ app.add_middleware(
 # Define request and response models
 class QueryRequest(BaseModel):
     prompt: str
+    data: list  # This will contain the parsed CSV data from the frontend
 
 class QueryResponse(BaseModel):
     response: str
+    chartSpec: dict  # Vega-Lite chart specification
 
 @app.post("/query", response_model=QueryResponse)
 async def query_openai(request: QueryRequest):
-    # Notes on GPT API 
-    # System -> Chatbot
-    # Temperature -> Controls randomness of responses
-    # Max tokens -> Tokenizer 
-    # Input formatting -> Can use XML or other formats
-    # Output formatting -> Can return JSON object
-    # Structured output -> Can use class using pydantic library
+    # Extract relevant information from the dataset
+    if not request.data:
+        return QueryResponse(response="No dataset uploaded. Please upload a dataset to generate charts.", chartSpec={})
+
     try:
-        # Instead of querying OpenAI, just return the dummy response
-        return QueryResponse(response="I am a simple bot and do not have any responses yet!")
-    
+        # Log the incoming request data for debugging
+        print("Incoming prompt:", request.prompt)
+        print("Incoming data:", request.data)
+
+        # Gather information from the dataset for GPT-4
+        columns = list(request.data[0].keys())  # Column names
+        column_types = {col: "categorical" if isinstance(request.data[0][col], str) else "quantitative" for col in columns}
+
+        # Use the full dataset, instead of a sample
+        full_data = request.data  # Full dataset, instead of sampling
+
+        # Create the prompt for GPT to generate a Vega-Lite chart specification with full data
+        prompt = f"""
+        You are a data visualization assistant. A user has provided a dataset with the following columns:
+        {json.dumps(column_types, indent=2)}. 
+        Here is the full dataset: {json.dumps(full_data, indent=2)}.
+        The user has asked the following question: {request.prompt}.
+        
+        Please generate a valid Vega-Lite JSON chart specification and a short description of the chart based on this question. 
+
+        All of this should be returned in valid JSON format. Do not forget to construct valid JSON or this will fail.
+        """
+
+        # Log the constructed prompt
+        print("Constructed prompt:", prompt)
+
+        # Log the constructed prompt
+        print("Constructed prompt:", prompt)
+
+        # Call OpenAI to generate the Vega-Lite specification
+        gpt_response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "assistant", "content": "You are a data visualization assistant."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=1000,
+            temperature=0.5,
+            n=1,
+            response_format={"type": "json_object"}
+        )
+
+        # Log the GPT response
+        print("GPT response:", gpt_response)
+
+        # Extract the response and ensure it's valid JSON
+        chart_response = gpt_response.choices[0].message.content
+        
+        # Log the chart response before JSON parsing
+        print("Chart response (before parsing):", chart_response)
+
+        chart_response_json = json.loads(chart_response)  # Convert to JSON
+
+        # Return the response
+        return QueryResponse(
+            response="Here is your generated chart based on the dataset.",
+            chartSpec=chart_response_json
+        )
+
     except openai.RateLimitError as e:  # Catch API errors
+        print(f"RateLimitError: {str(e)}")
         raise HTTPException(status_code=499, detail=f"OpenAI API error: {str(e)}")
-    
-    except Exception as e:  # Handle other potential errors
+
+    except json.JSONDecodeError as e:  # Catch JSON parsing errors
+        print(f"JSONDecodeError: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"JSON decode error: {str(e)}")
+
+    except Exception as e:  # Catch other potential errors
+        print(f"Unexpected error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 # Root endpoint
