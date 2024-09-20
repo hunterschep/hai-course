@@ -11,8 +11,9 @@ function App() {
   const [chatHistory, setChatHistory] = useState([]);
   const [file, setFile] = useState(null);
   const [data, setData] = useState(null);
-  const [isDragging, setIsDragging] = useState(false); // For drag-and-drop feedback
-  const [showPreview, setShowPreview] = useState(true); // For toggling dataset preview
+  const [isDragging, setIsDragging] = useState(false);
+  const [isThinking, setIsThinking] = useState(false); // For showing the thinking message
+  const [showPreview, setShowPreview] = useState(true);
   const chatEndRef = useRef(null);
 
   const sendMessage = async () => {
@@ -20,12 +21,14 @@ function App() {
 
     const newChatHistory = [...chatHistory, { sender: 'user', message }];
     setChatHistory(newChatHistory);
+    setMessage(""); // Clear the message input after sending
 
     if (!data) {
       setChatHistory([...newChatHistory, { sender: 'bot', message: "Please upload a dataset first." }]);
-      setMessage("");
       return;
     }
+
+    setIsThinking(true); // Start thinking indicator
 
     try {
       const res = await fetch(`${url}query`, {
@@ -37,15 +40,16 @@ function App() {
       });
 
       const result = await res.json();
-      const { response, chartSpec } = result;
+      const {chartSpec, description } = result; // Get the description
 
-      setChatHistory([...newChatHistory, { sender: 'bot', message: response, chartSpec }]);
+      setIsThinking(false); // Stop thinking indicator
+
+      setChatHistory([...newChatHistory, { sender: 'bot', message: description, chartSpec }]);
     } catch (error) {
       console.error("Error fetching the response:", error);
+      setIsThinking(false); // Stop thinking indicator
       setChatHistory([...newChatHistory, { sender: 'bot', message: "An error occurred. Please try again." }]);
     }
-
-    setMessage("");
   };
 
   const handleFileUpload = (file) => {
@@ -101,6 +105,16 @@ function App() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatHistory]);
+
+  // Error boundary for VegaLite
+  const VegaLiteWithErrorHandling = ({ spec }) => {
+    try {
+      return <VegaLite spec={spec} width={500} height={300} />; // Make the chart bigger
+    } catch (error) {
+      console.error("Error rendering VegaLite chart:", error);
+      return <p className="text-red-500">Unable to render chart. The chart specification is invalid.</p>;
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-r from-indigo-500 to-purple-500 flex items-center justify-center p-4">
@@ -165,32 +179,45 @@ function App() {
             <p className="text-gray-500 text-center">No messages yet. Start the conversation!</p>
           ) : (
             chatHistory.map((chat, index) => (
-              <div key={index} className={`flex ${chat.sender === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
-                {chat.sender === 'bot' && (
-                  <img 
-                    src={`${process.env.PUBLIC_URL}/user.png`} 
-                    alt="Bot" 
-                    className="w-8 h-8 rounded-full object-cover mr-3"
-                  />
-                )}
-                <div className={`flex items-center ${chat.sender === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-black'} rounded-lg p-3 max-w-fit shadow w-auto`}>
-                  <div className="text-base break-words">
-                    {chat.message}
-                    {chat.chartSpec && (
-                      <VegaLite spec={chat.chartSpec} />
+              <div key={index} className={`mb-4`}>
+                <div className={`flex ${chat.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {chat.sender === 'bot' && (
+                    <img 
+                      src={`${process.env.PUBLIC_URL}/user.png`} 
+                      alt="Bot" 
+                      className="w-8 h-8 rounded-full object-cover mr-3"
+                    />
+                  )}
+                  {chat.sender === 'user' && (
+                    <img 
+                      src={`${process.env.PUBLIC_URL}/user.png`} 
+                      alt="User" 
+                      className="w-8 h-8 rounded-full object-cover ml-3"
+                    />
+                  )}
+                  <div className={`flex flex-col ${chat.sender === 'user' ? 'items-end' : 'items-start'}`}>
+                    {/* Render chart above the message if present */}
+                    {chat.chartSpec && Object.keys(chat.chartSpec).length > 0 && (
+                      <div className="mb-2">
+                        <VegaLiteWithErrorHandling spec={chat.chartSpec} />
+                      </div>
                     )}
+                    <div className={`flex items-center ${chat.sender === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-black'} rounded-lg p-3 max-w-md shadow w-auto`}>
+                      <div className="text-base break-words">
+                        {chat.message}
+                      </div>
+                    </div>
                   </div>
                 </div>
-                {chat.sender === 'user' && (
-                  <img 
-                    src={`${process.env.PUBLIC_URL}/user.png`} 
-                    alt="User" 
-                    className="w-8 h-8 rounded-full object-cover ml-3"
-                  /> 
-                )}
               </div>
             ))
           )}
+
+          {/* Show "thinking..." message while waiting for API */}
+          {isThinking && (
+            <div className="text-gray-500 text-center mb-4">Thinking...</div>
+          )}
+
           <div ref={chatEndRef} />
         </div>
 
@@ -217,3 +244,4 @@ function App() {
 }
 
 export default App;
+

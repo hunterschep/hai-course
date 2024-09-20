@@ -37,7 +37,7 @@ class QueryRequest(BaseModel):
     data: list  # This will contain the parsed CSV data from the frontend
 
 class QueryResponse(BaseModel):
-    response: str
+    description: str
     chartSpec: dict  # Vega-Lite chart specification
 
 @app.post("/query", response_model=QueryResponse)
@@ -83,27 +83,25 @@ async def query_openai(request: QueryRequest):
                 {"role": "assistant", "content": "You are a data visualization assistant."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=1000,
-            temperature=0.5,
+            temperature=0.25,
             n=1,
             response_format={"type": "json_object"}
         )
 
-        # Log the GPT response
-        print("GPT response:", gpt_response)
+        # Extract the response from GPT-4
+        gpt_message = gpt_response.choices[0].message.content
 
-        # Extract the response and ensure it's valid JSON
-        chart_response = gpt_response.choices[0].message.content
-        
-        # Log the chart response before JSON parsing
-        print("Chart response (before parsing):", chart_response)
+        # Parse the GPT-4 response as JSON
+        chart_response_json = json.loads(gpt_message)
 
-        chart_response_json = json.loads(chart_response)  # Convert to JSON
+        # Extract the description and chartSpec
+        description = chart_response_json.get("description", "")
+        chart_spec = {key: chart_response_json[key] for key in chart_response_json if key != "description"}
 
-        # Return the response
+        # Return the response with description and chartSpec
         return QueryResponse(
-            response="Here is your generated chart based on the dataset.",
-            chartSpec=chart_response_json
+            description=description,
+            chartSpec=chart_spec
         )
 
     except openai.RateLimitError as e:  # Catch API errors
