@@ -1,3 +1,4 @@
+// Hunter Scheppat
 import { useState, useEffect, useRef } from 'react';
 import * as d3 from 'd3-dsv';
 import { VegaLite } from 'react-vega';
