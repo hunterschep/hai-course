@@ -31,10 +31,10 @@ openai.api_key = api_key
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://hunterschep.github.io"],  # Allow requests from GitHub Pages
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
-    allow_headers=["*"]  # Allow all headers
+    allow_methods=["*"],
+    allow_headers=["*"]
 )
 
 # Define request and response models

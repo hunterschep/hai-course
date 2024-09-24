@@ -17,40 +17,32 @@ function App() {
   const chatEndRef = useRef(null);
 
   const sendMessage = async () => {
-    if (!message.trim()) return;
-
-    const newChatHistory = [...chatHistory, { sender: 'user', message }];
-    setChatHistory(newChatHistory);
-    setMessage(""); // Clear the message input after sending
-
-    if (!data) {
-      setChatHistory([...newChatHistory, { sender: 'bot', message: "Please upload a dataset first." }]);
-      return;
-    }
-
-    setIsThinking(true); // Start thinking indicator
-
+    console.log("API URL:", `${url}/query/`);
     try {
-      const res = await fetch(`${url}query`, {
+      const res = await fetch(`${url}/query/`, {
         method: 'POST',
         body: JSON.stringify({ prompt: message, data }),
         headers: {
           'Content-Type': 'application/json'
         }
       });
-
+  
+      if (!res.ok) {
+        console.error("API responded with error status:", res.status);
+      }
+  
       const result = await res.json();
-      const {chartSpec, description } = result; // Get the description
-
-      setIsThinking(false); // Stop thinking indicator
-
+      console.log("API Response:", result);
+  
+      const { chartSpec, description } = result;
       setChatHistory([...newChatHistory, { sender: 'bot', message: description, chartSpec }]);
     } catch (error) {
       console.error("Error fetching the response:", error);
-      setIsThinking(false); // Stop thinking indicator
-      setChatHistory([...newChatHistory, { sender: 'bot', message: "An error occurred. Please try again." }]);
+    } finally {
+      setIsThinking(false);
     }
   };
+  
 
   const handleFileUpload = (file) => {
     if (file && file.type === 'text/csv') {
