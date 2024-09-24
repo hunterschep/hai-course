@@ -17,32 +17,47 @@ function App() {
   const chatEndRef = useRef(null);
 
   const sendMessage = async () => {
-    console.log("API URL:", `${url}/query/`);
+    if (!message.trim()) return;
+
+    const newChatHistory = [...chatHistory, { sender: 'user', message }];
+    setChatHistory(newChatHistory);
+    setMessage(""); // Clear the message input after sending
+
+    if (!data) {
+      setChatHistory([...newChatHistory, { sender: 'bot', message: "Please upload a dataset first." }]);
+      return;
+    }
+
+    setIsThinking(true); // Start thinking indicator
+
     try {
+      console.log("API URL:", `${url}/query/`);
       const res = await fetch(`${url}/query/`, {
         method: 'POST',
         body: JSON.stringify({ prompt: message, data }),
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         }
       });
-  
+
       if (!res.ok) {
         console.error("API responded with error status:", res.status);
+        throw new Error(`HTTP error! status: ${res.status}`);
       }
-  
+
       const result = await res.json();
       console.log("API Response:", result);
-  
-      const { chartSpec, description } = result;
+
+      const { chartSpec, description } = result; // Get the description
+
+      setIsThinking(false); // Stop thinking indicator
       setChatHistory([...newChatHistory, { sender: 'bot', message: description, chartSpec }]);
     } catch (error) {
       console.error("Error fetching the response:", error);
-    } finally {
-      setIsThinking(false);
+      setIsThinking(false); // Stop thinking indicator
+      setChatHistory([...newChatHistory, { sender: 'bot', message: "An error occurred. Please try again." }]);
     }
   };
-  
 
   const handleFileUpload = (file) => {
     if (file && file.type === 'text/csv') {
@@ -233,7 +248,7 @@ function App() {
       </div>
     </div>
   );
-}
-
-export default App;
-
+  }
+  
+  export default App;
+  
