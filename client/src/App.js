@@ -3,7 +3,7 @@ import * as d3 from 'd3-dsv';
 import { VegaLite } from 'react-vega';
 
 const url = process.env.NODE_ENV === 'production' 
-  ? 'https://hai-fastapi.vercel.app/' 
+  ? 'https://hai-course.onrender.com' 
   : 'http://127.0.0.1:8000/';
 
 function App() {

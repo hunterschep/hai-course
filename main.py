@@ -6,6 +6,8 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import os
 import json
+import uvicorn
+import logging
 
 # Load environment variables from .env file
 load_dotenv()
@@ -13,6 +15,10 @@ load_dotenv()
 app = FastAPI(debug=True)
 
 client = OpenAI()
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load OpenAI API key from environment variable
 api_key = os.environ.get("OPENAI_API_KEY")
@@ -42,23 +48,18 @@ class QueryResponse(BaseModel):
 
 @app.post("/query", response_model=QueryResponse)
 async def query_openai(request: QueryRequest):
+    logger.info(f"Received a new request with prompt: {request.prompt}")
     # Extract relevant information from the dataset
     if not request.data:
         return QueryResponse(response="No dataset uploaded. Please upload a dataset to generate charts.", chartSpec={})
 
     try:
-        # Log the incoming request data for debugging
-        print("Incoming prompt:", request.prompt)
-        print("Incoming data:", request.data)
-
         # Gather information from the dataset for GPT-4
         columns = list(request.data[0].keys())  # Column names
         column_types = {col: "categorical" if isinstance(request.data[0][col], str) else "quantitative" for col in columns}
+        full_data = request.data  # Full dataset
 
-        # Use the full dataset, instead of a sample
-        full_data = request.data  # Full dataset, instead of sampling
-
-        # Create the prompt for GPT to generate a Vega-Lite chart specification with full data
+        # Create the prompt for GPT to generate a Vega-Lite chart specification
         prompt = f"""
         You are a data visualization assistant. A user has provided a dataset with the following columns:
         {json.dumps(column_types, indent=2)}. 
@@ -66,15 +67,10 @@ async def query_openai(request: QueryRequest):
         The user has asked the following question: {request.prompt}.
         
         Please generate a valid Vega-Lite JSON chart specification and a short description of the chart based on this question. 
-
-        All of this should be returned in valid JSON format. Do not forget to construct valid JSON or this will fail.
         """
 
         # Log the constructed prompt
-        print("Constructed prompt:", prompt)
-
-        # Log the constructed prompt
-        print("Constructed prompt:", prompt)
+        logger.info(f"Constructed prompt: {prompt}")
 
         # Call OpenAI to generate the Vega-Lite specification
         gpt_response = client.chat.completions.create(
@@ -104,19 +100,24 @@ async def query_openai(request: QueryRequest):
             chartSpec=chart_spec
         )
 
-    except openai.RateLimitError as e:  # Catch API errors
-        print(f"RateLimitError: {str(e)}")
+    except openai.RateLimitError as e:
+        logger.error(f"RateLimitError: {str(e)}")
         raise HTTPException(status_code=499, detail=f"OpenAI API error: {str(e)}")
 
-    except json.JSONDecodeError as e:  # Catch JSON parsing errors
-        print(f"JSONDecodeError: {str(e)}")
+    except json.JSONDecodeError as e:
+        logger.error(f"JSONDecodeError: {str(e)}")
         raise HTTPException(status_code=500, detail=f"JSON decode error: {str(e)}")
 
-    except Exception as e:  # Catch other potential errors
-        print(f"Unexpected error: {str(e)}")
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 # Root endpoint
 @app.get("/")
 async def read_root():
     return {"message": "API is running"}
+
+# Ensure proper port handling for Render
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, log_level="info")
