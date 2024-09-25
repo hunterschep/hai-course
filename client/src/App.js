@@ -32,8 +32,9 @@ function App() {
     setIsThinking(true); // Start thinking indicator
 
     try {
-      console.log("API URL:", `${url}/query/`);
-      const res = await fetch(`${url}/query/`, {
+      const apiUrl = new URL('/query/', url).toString();  // Correctly handle the URL construction
+      console.log("API URL:", apiUrl);
+      const res = await fetch(apiUrl, {
         method: 'POST',
         body: JSON.stringify({ prompt: message, data }),
         headers: {
@@ -127,7 +128,8 @@ function App() {
   return (
     <div className="min-h-screen bg-gradient-to-r from-indigo-500 to-purple-500 flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-4xl rounded-lg shadow-lg p-6 space-y-6">
-        <h1 className="text-3xl text-center font-bold text-gray-900">Chat with DataViz Assistant</h1>
+        <h1 className="text-3xl text-center font-bold text-gray-900">Hunter's Data Visualization Bot</h1>
+        <p className="text-center text-gray-500">Upload a dataset and ask questions to generate visualizations. Please note that analysis is currently only provided on the first 50 rows due to api constraints</p>
 
         {/* File upload box */}
         <div 
