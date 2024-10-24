@@ -57,7 +57,7 @@ async def query_openai(request: QueryRequest):
         # Gather information from the dataset for GPT-4
         columns = list(request.data[0].keys())  # Column names
         column_types = {col: "categorical" if isinstance(request.data[0][col], str) else "quantitative" for col in columns}
-        full_data = request.data[:50] # dataset
+        full_data = request.data # dataset
 
         # Create the prompt for GPT to generate a Vega-Lite chart specification
         prompt = f"""
@@ -66,7 +66,7 @@ async def query_openai(request: QueryRequest):
         Here is the full dataset: {json.dumps(full_data, indent=2)}.
         The user has asked the following question: {request.prompt}.
         
-        You must generate a valid Vega-Lite JSON chart specification and a short description of the chart based on the user's question. Ensure your description is placed in a 'description' key in the JSON object.
+        You must generate a valid Vega-Lite JSON chart specification and a short description of the chart features like the chart type, analysis of what it displays, etc. Ensure your description is placed in a 'description' key in the JSON object.
         """
 
         # Log the constructed prompt
