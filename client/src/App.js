@@ -93,8 +93,7 @@ function App() {
                 </h1>
                 <p className="text-center text-lg text-gray-600">
                     Upload your dataset and ask questions to generate
-                    interactive visualizations. For example, try asking "Show me
-                    mpg by origin".
+                    interactive visualizations and analysis!
                 </p>
 
                 {/* File Upload */}
@@ -178,7 +177,7 @@ function App() {
                 <div className="overflow-y-auto h-96 mb-6 p-6 border border-gray-300 rounded-lg bg-white shadow-lg">
                     {chatHistory.length === 0 ? (
                         <p className="text-gray-500 text-center">
-                            No messages yet. Start the conversation!
+                            What can I help with?
                         </p>
                     ) : (
                         chatHistory.map((chat, index) => (
@@ -254,11 +253,11 @@ function App() {
                 <div className="flex space-x-1">
                     <input
                         type="text"
-                        placeholder="Type your message..."
+                        placeholder="Message data visualization bot..."
                         value={message}
                         onChange={(e) => setMessage(e.target.value)}
                         onKeyPress={(e) => e.key === "Enter" && sendMessage()}
-                        className="flex-grow p-4 border border-gray-300 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-indigo-600 transition duration-300"
+                        className="flex-grow p-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600 transition duration-300"
                     />
                     <div className="flex space-x-1">
                         <button
@@ -271,7 +270,7 @@ function App() {
                             className="bg-indigo-600 text-white px-8 py-4 rounded-lg hover:bg-indigo-700 transition duration-300"
                             onClick={setChatHistory.bind(null, [])}
                         >
-                            Clear
+                            Clear Messages
                         </button>
                     </div>
                 </div>
