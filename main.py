@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Dict
 import openai
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -8,6 +9,9 @@ import os
 import json
 import uvicorn
 import logging
+import sys
+import re
+from io import StringIO
 
 # Load environment variables from .env file
 load_dotenv()
@@ -46,70 +50,289 @@ class QueryResponse(BaseModel):
     description: str
     chartSpec: dict  # Vega-Lite chart specification
 
-@app.post("/query/", response_model=QueryResponse)
-async def query_openai(request: QueryRequest):
-    logger.info(f"Received a new request with prompt: {request.prompt}")
-    # Extract relevant information from the dataset
-    if not request.data:
-        return QueryResponse(response="No dataset uploaded. Please upload a dataset to generate charts.", chartSpec={})
+# TOOL 1: Tool to generate Vega-Lite chart from the dataset
+def vegaLiteTool(request: dict):
+    print(request)
+    # Check if data is provided
+    if not request.get("data"):
+        return {
+            "description": "No dataset uploaded. Please upload a dataset to generate charts.",
+            "chartSpec": {}
+        }
 
     try:
-        # Gather information from the dataset for GPT-4
-        columns = list(request.data[0].keys())  # Column names
-        column_types = {col: "categorical" if isinstance(request.data[0][col], str) else "quantitative" for col in columns}
-        full_data = request.data # dataset
-
-        # Create the prompt for GPT to generate a Vega-Lite chart specification
-        prompt = f"""
-        You are a data visualization assistant. A user has provided a dataset with the following columns:
-        {json.dumps(column_types, indent=2)}. 
-        Here is the full dataset: {json.dumps(full_data, indent=2)}.
-        The user has asked the following question: {request.prompt}.
+        # Gather dataset structure information for GPT-4
+        columns = list(request["data"][0].keys())
+        column_types = {
+            col: "categorical" if isinstance(request["data"][0][col], str) else "quantitative"
+            for col in columns
+        }
         
-        You must generate a valid Vega-Lite JSON chart specification and a short description of the chart features like the chart type, analysis of what it displays, etc. Ensure your description is placed in a 'description' key in the JSON object.
+        # Construct the prompt for Vega-Lite specification generation
+        prompt = f"""
+        You are a data visualization assistant. The user provided a dataset with columns: 
+        {json.dumps(column_types, indent=2)}.
+        
+        Here is the dataset sample:
+        {json.dumps(request["data"][:5], indent=2)}  # Sample only first few rows for brevity.
+        
+        The user has requested visualization with the question: {request["prompt"]}.
+        
+        Please create a valid Vega-Lite JSON chart specification. Include a 'description' of chart features, analysis, 
+        and the type of visualization chosen.
+
+        You will provide the response in this JSON format: 
+        {{
+            "description": "Description of the chart and its features.",
+            "chartSpec": {{
+                The valid Vega-Lite JSON chart specification!
+            }}
+        }}
         """
 
-        # Log the constructed prompt
-        logger.info(f"Constructed prompt: {prompt}")
+        # Log the prompt for debugging
+        logger.info(f"Generated prompt: {prompt}")
 
-        # Call OpenAI to generate the Vega-Lite specification
+        # Call OpenAI API to generate chart specification
         gpt_response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "assistant", "content": "You are a data visualization assistant."},
+                {"role": "system", "content": "You are a data visualization assistant."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.25,
-            n=1,
+            temperature=0.3,
             response_format={"type": "json_object"}
         )
 
-        # Extract the response from GPT-4
-        gpt_message = gpt_response.choices[0].message.content
+        # Extract and parse the response
+        response_content = gpt_response.choices[0].message.content
+        chart_response_json = json.loads(response_content)
 
-        # Parse the GPT-4 response as JSON
-        chart_response_json = json.loads(gpt_message)
-
+        # Extract description and chartSpec from response
         # Extract the description and chartSpec
         description = chart_response_json.get("description", "")
-        chart_spec = {key: chart_response_json[key] for key in chart_response_json if key != "description"}
+        chart_spec = chart_response_json.get("chartSpec", {})
 
-        # Return the response with description and chartSpec
-        return QueryResponse(
-            description=description,
-            chartSpec=chart_spec
-        )
+
+        # Return the extracted data without wrapping in QueryResponse
+        return {
+            "description": description,
+            "chartSpec": chart_spec
+        }
 
     except openai.RateLimitError as e:
         logger.error(f"RateLimitError: {str(e)}")
-        raise HTTPException(status_code=499, detail=f"OpenAI API error: {str(e)}")
+        raise HTTPException(status_code=429, detail=f"OpenAI API rate limit exceeded.")
 
     except json.JSONDecodeError as e:
         logger.error(f"JSONDecodeError: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"JSON decode error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error decoding JSON response.")
 
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Unexpected error occurred.")
+
+
+# Function to generate data analysis from the dataset using GPT-4 and pandas 
+# Sanitize input to prevent potential security issues
+def sanitize_input(query: str) -> str:
+    """Sanitize input to the Python REPL by removing unnecessary or potentially unsafe characters."""
+    query = re.sub(r"^(\s|`)*(?i:python)?\s*", "", query)
+    query = re.sub(r"(\s|`)*$", "", query)
+    return query
+
+# Execute Pandas DataFrame code dynamically
+def execute_panda_dataframe_code(code: str) -> str:
+    """
+    Execute the provided Python code and return captured output.
+    """
+    old_stdout = sys.stdout  # Save current stdout to restore later
+    sys.stdout = mystdout = StringIO()  # Redirect stdout to capture prints
+
+    try:
+        # Sanitize the input code
+        cleaned_code = sanitize_input(code)
+        # Execute the sanitized code
+        exec(cleaned_code)
+        # Restore stdout and return captured output
+        sys.stdout = old_stdout
+        return mystdout.getvalue()
+    except Exception as e:
+        # Restore stdout and return the error message if an exception occurs
+        sys.stdout = old_stdout
+        return repr(e)
+
+# TOOL 2: Data analysis tool that receives a code query and a DataFrame
+def dataAnalysisTool(query: str, dataframe) -> str:
+    """
+    Use GPT-4 to generate Python code for analyzing the dataset.
+    Execute the generated code and return the result.
+    """
+    # Generate a prompt for the OpenAI API to create the analysis code
+    code_prompt = f"""
+    You are a data analysis assistant. A user has asked you to: {query}
+    The dataset is provided in a variable named 'dataframe'. 
+    Generate Python code using the 'dataframe' variable to perform the analysis, 
+    and include print(...) statements to display the output directly.
+    """
+
+    try:
+        # Call OpenAI API to generate analysis code
+        gpt_response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a data analysis assistant."},
+                {"role": "user", "content": code_prompt}
+            ],
+            temperature=0.3,
+        )
+
+        # Extract and parse the response content
+        gpt_generated_code = gpt_response['choices'][0]['message']['content'].strip()
+
+        # Execute the generated code and capture output
+        return execute_panda_dataframe_code(gpt_generated_code)
+
+    except openai.RateLimitError as e:
+        logger.error(f"Rate limit error: {e}")
+        raise HTTPException(status_code=429, detail="OpenAI API rate limit exceeded.")
+
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON decode error: {e}")
+        raise HTTPException(status_code=500, detail="Error decoding JSON response.")
+
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        raise HTTPException(status_code=500, detail="Unexpected error occurred.")
+
+# JSON description of vegaLiteTool
+vegaLiteJSON = {
+    "name": "vegaLiteTool",
+    "description": "Generate a Vega-Lite chart specification based on a dataset and a user prompt. Use this function whenever a user requests a data visualization or chart.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "request": {
+                "type": "object",
+                "description": "Object containing user query and dataset information.",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "User's request or question describing the desired chart."
+                    },
+                    "data": {
+                        "type": "object",
+                        "description": "Object representing the dataset, where keys are column names and values are arrays of data values.",
+                        "additionalProperties": True
+                    }
+                },
+                "required": ["prompt", "data"]
+            }
+        },
+        "required": ["request"],
+        "additionalProperties": False
+    }
+}
+
+# JSON description of dataAnalysisTool
+dataAnalysisJSON = {
+    "name": "dataAnalysisTool",
+    "description": "Generate and execute Python code to analyze a dataset based on a user query. Use this function whenever a user requests a data analysis task.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "The user's request describing the analysis they want to perform on the dataset."
+            },
+            "dataframe": {
+                "type": "object",
+                "description": "The dataset to analyze, structured as an object where keys are column names and values are arrays of data values.",
+                "additionalProperties": True
+            }
+        },
+        "required": ["query", "dataframe"],
+        "additionalProperties": False
+    }
+}
+
+# Aggregate both tools 
+tools = [vegaLiteJSON, dataAnalysisJSON]
+
+# Mapping tools to their functions 
+tool_map = {
+    "vegaLiteTool": vegaLiteTool,
+    "dataAnalysisTool": dataAnalysisTool
+}
+
+@app.post("/query/", response_model=QueryResponse)
+async def query_openai(request: QueryRequest):
+    logger.info(f"Received a new request with prompt: {request.prompt}")
+
+    # Conversation history for the API
+    messages = [
+        {"role": "system", "content": "You are a data analysis and visualization assistant."},
+        {"role": "user", "content": request.prompt}
+    ]
+
+    try:
+        # Initial model call to assess if a tool is needed
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            functions=tools  # Pass in JSON schemas for the tools
+        )
+
+        # Extract response and check for function call
+        response_message = response.choices[0].message
+ 
+        if response_message.function_call:
+            # Tool call specifics
+            tool_name = response_message.function_call.name
+            arguments = json.loads(response_message.function_call.arguments)
+
+            # Ensure 'data' is included in the arguments if available in the request
+            if hasattr(request, "data") and request.data:
+                arguments["request"]["data"] = request.data
+
+            logger.info(f"Model selected tool: {tool_name} with arguments: {arguments}")
+
+            # Locate and execute the selected tool
+            function_to_call = tool_map.get(tool_name)
+            if function_to_call:
+                output = function_to_call(**arguments)
+
+                # Add tool's response to the message history
+                messages.append({
+                    "role": "function",
+                    "name": tool_name,
+                    "content": json.dumps(output)
+                })
+                
+                print(output)
+                # Respond with tool output based on tool type
+                return QueryResponse(
+                    description=output.get("description", response_message.content),
+                    chartSpec=output.get("chartSpec", {}) if tool_name == "vegaLiteTool" else {}
+                )
+
+        # If no tool was used, return direct model response
+        messages.append(response_message)
+        return QueryResponse(
+            description=response_message.content,
+            chartSpec={}
+        )
+
+    except openai.RateLimitError as e:
+        logger.error(f"Rate limit error: {e}")
+        raise HTTPException(status_code=429, detail="OpenAI API rate limit exceeded.")
+
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON decode error: {e}")
+        raise HTTPException(status_code=500, detail="Error decoding JSON response.")
+
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 # Root endpoint
