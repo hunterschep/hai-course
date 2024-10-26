@@ -4,6 +4,8 @@ import * as d3 from "d3-dsv";
 import { VegaLite } from "react-vega";
 import { sendMessageToAPI } from "./apis/api";
 
+const svgPath = process.env.PUBLIC_URL + "/fade-stagger-circles.svg";
+
 function App() {
     const [message, setMessage] = useState("");
     const [chatHistory, setChatHistory] = useState([]);
@@ -241,11 +243,14 @@ function App() {
                         ))
                     )}
 
-                    {isThinking && (
-                        <div className="text-gray-500 text-center mb-5">
-                            Thinking...
-                        </div>
-                    )}
+                {isThinking && (
+                    <div className="text-gray-500 text-center mb-5 flex items-center justify-center">
+                        <img src={svgPath} alt="Loading..." className="h-5 w-5 mr-3 animate-spin" />
+                        Thinking
+                    </div>
+                )}
+
+
                     <div ref={chatEndRef} />
                 </div>
 
