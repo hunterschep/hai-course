@@ -12,6 +12,7 @@ import logging
 import sys
 import re
 from io import StringIO
+import pandas as pd
 
 # Load environment variables from .env file
 load_dotenv()
@@ -52,7 +53,6 @@ class QueryResponse(BaseModel):
 
 # TOOL 1: Tool to generate Vega-Lite chart from the dataset
 def vegaLiteTool(request: dict):
-    print(request)
     # Check if data is provided
     if not request.get("data"):
         return {
@@ -141,7 +141,7 @@ def sanitize_input(query: str) -> str:
     return query
 
 # Execute Pandas DataFrame code dynamically
-def execute_panda_dataframe_code(code: str) -> str:
+def execute_panda_dataframe_code(code: str, dataframe) -> str:
     """
     Execute the provided Python code and return captured output.
     """
@@ -162,17 +162,38 @@ def execute_panda_dataframe_code(code: str) -> str:
         return repr(e)
 
 # TOOL 2: Data analysis tool that receives a code query and a DataFrame
-def dataAnalysisTool(query: str, dataframe) -> str:
+def dataAnalysisTool(request: dict) -> str:
     """
     Use GPT-4 to generate Python code for analyzing the dataset.
     Execute the generated code and return the result.
     """
+    # Check if data is provided
+    if not request.get("data"):
+        return {
+            "description": "No dataset uploaded. Please upload a dataset to generate charts.",
+            "chartSpec": {}
+        }
+    
+    # Gather dataset structure information for GPT-4
+    columns = list(request["data"][0].keys())
+    column_types = {
+        col: "categorical" if isinstance(request["data"][0][col], str) else "quantitative"
+        for col in columns
+    }
+
+    # Turn request.data in pandas dataframe
+    dataframe = pd.DataFrame(request.get("data"))
+    query = request.get("prompt")
     # Generate a prompt for the OpenAI API to create the analysis code
     code_prompt = f"""
     You are a data analysis assistant. A user has asked you to: {query}
     The dataset is provided in a variable named 'dataframe'. 
+    The dataframe has the following columns: 
+        {json.dumps(column_types, indent=2)}.
+
     Provide Python code using the 'dataframe' variable to perform the analysis, 
     and include print(...) statements to display the output directly.
+    You should provide only the python code. 
 
     You will then be reprompted with the result of the code and will be asked to provide some analysis of the results.
     """
@@ -189,10 +210,10 @@ def dataAnalysisTool(query: str, dataframe) -> str:
         )
 
         # Extract and parse the response content
-        gpt_generated_code = gpt_response['choices'][0]['message']['content'].strip()
+        gpt_generated_code = gpt_response.choices[0].message.content
 
         # Execute the generated code and capture output
-        return execute_panda_dataframe_code(gpt_generated_code)
+        return execute_panda_dataframe_code(gpt_generated_code, dataframe=dataframe)
 
     except openai.RateLimitError as e:
         logger.error(f"Rate limit error: {e}")
@@ -242,17 +263,24 @@ dataAnalysisJSON = {
     "parameters": {
         "type": "object",
         "properties": {
-            "query": {
-                "type": "string",
-                "description": "The user's request describing the analysis they want to perform on the dataset."
-            },
-            "dataframe": {
+            "request": {
                 "type": "object",
-                "description": "The dataset to analyze, structured as an object where keys are column names and values are arrays of data values.",
-                "additionalProperties": True
+                "description": "Object containing user query and dataset information.",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "User's request or question describing the desired chart."
+                    },
+                    "data": {
+                        "type": "object",
+                        "description": "Object representing the dataset, where keys are column names and values are arrays of data values.",
+                        "additionalProperties": True
+                    }
+                },
+                "required": ["prompt", "data"]
             }
         },
-        "required": ["query", "dataframe"],
+        "required": ["request"],
         "additionalProperties": False
     }
 }
@@ -311,10 +339,11 @@ async def query_openai(request: QueryRequest):
                 })
                 
                 # If the tool is dataAnalysis tool, we need to return it back to the model to generate the analysis 
+                analysis_prompt = f"Provide the result of the code generated above in a json object called 'description'."
                 if tool_name == "dataAnalysisTool":
                     response = client.chat.completions.create(
                         model="gpt-4o-mini",
-                        messages=messages,
+                        messages=messages
                     )
                     response_message = response.choices[0].message
 
@@ -322,7 +351,7 @@ async def query_openai(request: QueryRequest):
                 # Respond with tool output based on tool type
                 print(output)
                 return QueryResponse(
-                    description=output.get("description") or response_message.content,
+                    description=output.get("description") if tool_name == "vegaLiteTool" else response_message.content,
                     chartSpec=output.get("chartSpec", {}) if tool_name == "vegaLiteTool" else {}
                 )
 
