@@ -73,8 +73,7 @@ def vegaLiteTool(request: dict):
         You are a data visualization assistant. The user provided a dataset with columns: 
         {json.dumps(column_types, indent=2)}.
         
-        Here is the dataset sample:
-        {json.dumps(request["data"][:5], indent=2)}  # Sample only first few rows for brevity.
+        Here is the full dataset: {json.dumps(request["data"], indent=2)}.
         
         The user has requested visualization with the question: {request["prompt"]}.
         
@@ -110,10 +109,10 @@ def vegaLiteTool(request: dict):
 
         # Extract description and chartSpec from response
         # Extract the description and chartSpec
+
         description = chart_response_json.get("description", "")
         chart_spec = chart_response_json.get("chartSpec", {})
-
-
+        
         # Return the extracted data without wrapping in QueryResponse
         return {
             "description": description,
@@ -172,8 +171,10 @@ def dataAnalysisTool(query: str, dataframe) -> str:
     code_prompt = f"""
     You are a data analysis assistant. A user has asked you to: {query}
     The dataset is provided in a variable named 'dataframe'. 
-    Generate Python code using the 'dataframe' variable to perform the analysis, 
+    Provide Python code using the 'dataframe' variable to perform the analysis, 
     and include print(...) statements to display the output directly.
+
+    You will then be reprompted with the result of the code and will be asked to provide some analysis of the results.
     """
 
     try:
@@ -309,10 +310,19 @@ async def query_openai(request: QueryRequest):
                     "content": json.dumps(output)
                 })
                 
-                print(output)
+                # If the tool is dataAnalysis tool, we need to return it back to the model to generate the analysis 
+                if tool_name == "dataAnalysisTool":
+                    response = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=messages,
+                    )
+                    response_message = response.choices[0].message
+
+                # Need to make sure this accurately returns the output of the data analysis tool! 
                 # Respond with tool output based on tool type
+                print(output)
                 return QueryResponse(
-                    description=output.get("description", response_message.content),
+                    description=output.get("description") or response_message.content,
                     chartSpec=output.get("chartSpec", {}) if tool_name == "vegaLiteTool" else {}
                 )
 
