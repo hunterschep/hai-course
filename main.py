@@ -14,11 +14,10 @@ import re
 from io import StringIO
 import pandas as pd
 
-#print msg in red, accept multiple strings like print statement
+# Helper functions for printing model thought process 
 def print_red(*strings):
   print('\033[91m' + ' '.join(strings) + '\033[0m')
 
-# print msg in blue, , accept multiple strings like print statement
 def print_blue(*strings):
   print('\033[94m' + ' '.join(strings) + '\033[0m')
 
@@ -139,16 +138,14 @@ def vegaLiteTool(query: str, request: dict):
         logger.error(f"Unexpected error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Unexpected error occurred.")
 
-
-# Function to generate data analysis from the dataset using GPT-4 and pandas 
-# Sanitize input to prevent potential security issues
+# TOOL 1 - Helper function: Clean the input to be ran as code
 def sanitize_input(query: str) -> str:
     """Sanitize input to the Python REPL by removing unnecessary or potentially unsafe characters."""
     query = re.sub(r"^(\s|`)*(?i:python)?\s*", "", query)
     query = re.sub(r"(\s|`)*$", "", query)
     return query
 
-# Execute Pandas DataFrame code dynamically
+# TOOL 1 - Helper function: Run the python code 
 def execute_panda_dataframe_code(code: str, dataframe) -> str:
     """
     Execute the provided Python code and return captured output.
@@ -234,6 +231,7 @@ def dataAnalysisTool(query: str, request: dict) -> str:
         logger.error(f"Unexpected error: {e}")
         raise HTTPException(status_code=500, detail="Unexpected error occurred.")
 
+# JSON description of vegaLiteTool
 vegaLiteJSON = {
     "name": "vegaLiteTool",
     "description": "Generate a Vega-Lite chart specification based on a dataset and a user prompt. Use this function whenever a user requests a data visualization or chart. This function only accepts a query!",
@@ -249,7 +247,6 @@ vegaLiteJSON = {
         "additionalProperties": False
     }
 }
-
 
 # JSON description of dataAnalysisTool
 dataAnalysisJSON = {
@@ -277,9 +274,7 @@ tool_map = {
     "dataAnalysisTool": dataAnalysisTool
 }
 
-import re
-import json
-
+# Chat functionality with JSON 
 def chat(messages):
     response = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -290,12 +285,15 @@ def chat(messages):
 
 @app.post("/query/", response_model=QueryResponse)
 async def query_openai(request: QueryRequest):
+
+    # Extract the columns and their types from the dataset
     columns = list(request.model_dump()["data"][0].keys())
     column_types = {
         col: "categorical" if isinstance(request.model_dump()["data"][0][col], str) else "quantitative"
         for col in columns
     }
 
+    # Define a ReAct assistant prompt 
     system_prompt = f'''
     You are a data assistant. You have access to this dataset with the following columns: {column_types}
 
@@ -327,7 +325,7 @@ async def query_openai(request: QueryRequest):
     Make sure to describe your final answer in a fully fleshed out thought that is a valid sentence.
     If you are displaying a chart, you should also describe it in the Final Answer.
     '''
-
+    # Initial messages
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": request.prompt}
@@ -339,6 +337,7 @@ async def query_openai(request: QueryRequest):
     max_iterations = 10
     iteration = 0
 
+    # ReAct loop 
     while iteration < max_iterations:
         response_message = chat(messages)
         print_red(str(response_message))
@@ -362,12 +361,12 @@ async def query_openai(request: QueryRequest):
                 observation = f"Observation: action name: {action_name}, action_input: {json.dumps(action_input)}, result: {result}"
                 messages.append({"role": "assistant", "content": observation})
                 
-        # Check if the response contains the final answer
+        # Check for final answer 
         if "Final Answer" in response_message:
             final_answer = str(json.loads(response_message)["Final Answer"])
             description = final_answer
 
-        # Check if the response message contains the chart specification 
+        # Check for chart specification 
         if "chartSpec" in response_message:
             chartSpec = json.loads(response_message)["chartSpec"]
             break
@@ -390,7 +389,8 @@ logger.warning("Max iterations reached without resolving the query.")
 async def read_root():
     return {"message": "API is running"}
 
-# Ensure proper port handling for Render
+# Port handling for Render deployment
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port, log_level="info")
+
