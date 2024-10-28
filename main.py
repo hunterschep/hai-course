@@ -332,8 +332,10 @@ async def query_openai(request: QueryRequest):
         Action: 
         Action Input: 
         Final Answer: (When you know the final answer)
+        chartSpec: The valid JSON Vega-Lite chart specification (YOU MUST provide this if you are using the vegaLiteTool)
 
     Make sure to describe your final answer in a fully fleshed out thought that is a valid sentence.
+    If you are displaying a chart, you should also describe it in the Final Answer.
 
     '''
 
@@ -360,7 +362,7 @@ async def query_openai(request: QueryRequest):
 
             # Parse action input JSON
             action_input = json.loads(match.group(2))
-            # logger.info(f"Model selected tool: {action_name} with arguments: {action_input}")
+            logger.info(f"Model selected tool: {action_name}")
 
             # Locate and execute the selected tool
             function_to_call = tool_map.get(action_name)
@@ -375,37 +377,24 @@ async def query_openai(request: QueryRequest):
                 messages.append({"role": "assistant", "content": observation})
 
                 # If further interpretation is needed for `dataAnalysisTool`
-                if action_name == "dataAnalysisTool":
-                    response_json = chat(messages)
-                    response_message = json.loads(response_json)  # Convert JSON string to dictionary
+                response = chat(messages)
+                response_message = json.loads(response)  # Convert JSON string to dictionary
 
-                    print_red(str(response_message))
+                print_red(str(response_message))
 
-                    # Now access the 'Final Answer' field
-                    response_message_content = str(response_message["Final Answer"])
-                
-                if action_name == "vegaLiteTool":
-                    chartSpec = result.get("chartSpec", {})
-
-
+                description = str(response_message["Final Answer"]) if "Final Answer" in response_message else ""
                 # Prepare response based on tool type
-                description = response_message_content if action_name == "dataAnalysisTool" else result.get("description", "")
-                chartSpec = chartSpec if action_name == "vegaLiteTool" else {}
+                chartSpec = str(response_message["chartSpec"]) if "chartSpec" in response_message else {}
+        
+        iteration += 1  
 
-                # Return the final structured response
-                return QueryResponse(
-                    description=description,
-                    chartSpec=chartSpec if chartSpec else {}
-                )
 
-        # No action identified; return final response
-        else:
-            return QueryResponse(
-                description=response_message,
-                chartSpec={}
-            )
+        # Return the final structured response
+        return QueryResponse(
+            description=description if description else "No final answer provided.",
+            chartSpec=chartSpec if chartSpec else {}
+        )
 
-        iteration += 1
 
     logger.warning("Max iterations reached without resolving the query.")
     return QueryResponse(
