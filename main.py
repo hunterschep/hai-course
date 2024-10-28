@@ -333,6 +333,8 @@ async def query_openai(request: QueryRequest):
         Action Input: 
         Final Answer: (When you know the final answer)
 
+    Make sure to describe your final answer in a fully fleshed out thought that is a valid sentence.
+
     '''
 
     messages = [
@@ -380,7 +382,7 @@ async def query_openai(request: QueryRequest):
                     print_red(str(response_message))
 
                     # Now access the 'Final Answer' field
-                    response_message_content = response_message["Final Answer"]
+                    response_message_content = str(response_message["Final Answer"])
                 
                 if action_name == "vegaLiteTool":
                     chartSpec = result.get("chartSpec", {})
