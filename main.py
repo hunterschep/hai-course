@@ -14,6 +14,14 @@ import re
 from io import StringIO
 import pandas as pd
 
+#print msg in red, accept multiple strings like print statement
+def print_red(*strings):
+  print('\033[91m' + ' '.join(strings) + '\033[0m')
+
+# print msg in blue, , accept multiple strings like print statement
+def print_blue(*strings):
+  print('\033[94m' + ' '.join(strings) + '\033[0m')
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -52,7 +60,7 @@ class QueryResponse(BaseModel):
     chartSpec: dict  # Vega-Lite chart specification
 
 # TOOL 1: Tool to generate Vega-Lite chart from the dataset
-def vegaLiteTool(request: dict):
+def vegaLiteTool(query: str, request: dict):
     # Check if data is provided
     if not request.get("data"):
         return {
@@ -75,7 +83,7 @@ def vegaLiteTool(request: dict):
         
         Here is the full dataset: {json.dumps(request["data"], indent=2)}.
         
-        The user has requested visualization with the question: {request["prompt"]}.
+        The user has requested visualization with the question: {query}.
         
         Please create a valid Vega-Lite JSON chart specification. Include a 'description' of chart features, analysis, 
         and the type of visualization chosen.
@@ -90,7 +98,7 @@ def vegaLiteTool(request: dict):
         """
 
         # Log the prompt for debugging
-        logger.info(f"Generated prompt: {prompt}")
+        # logger.info(f"Generated prompt: {prompt}")
 
         # Call OpenAI API to generate chart specification
         gpt_response = client.chat.completions.create(
@@ -162,7 +170,7 @@ def execute_panda_dataframe_code(code: str, dataframe) -> str:
         return repr(e)
 
 # TOOL 2: Data analysis tool that receives a code query and a DataFrame
-def dataAnalysisTool(request: dict) -> str:
+def dataAnalysisTool(query: str, request: dict) -> str:
     """
     Use GPT-4 to generate Python code for analyzing the dataset.
     Execute the generated code and return the result.
@@ -173,7 +181,6 @@ def dataAnalysisTool(request: dict) -> str:
             "description": "No dataset uploaded. Please upload a dataset to generate charts.",
             "chartSpec": {}
         }
-    
     # Gather dataset structure information for GPT-4
     columns = list(request["data"][0].keys())
     column_types = {
@@ -183,7 +190,6 @@ def dataAnalysisTool(request: dict) -> str:
 
     # Turn request.data in pandas dataframe
     dataframe = pd.DataFrame(request.get("data"))
-    query = request.get("prompt")
     # Generate a prompt for the OpenAI API to create the analysis code
     code_prompt = f"""
     You are a data analysis assistant. A user has asked you to: {query}
@@ -197,6 +203,7 @@ def dataAnalysisTool(request: dict) -> str:
 
     You will then be reprompted with the result of the code and will be asked to provide some analysis of the results.
     """
+
 
     try:
         # Call OpenAI API to generate analysis code
@@ -227,34 +234,22 @@ def dataAnalysisTool(request: dict) -> str:
         logger.error(f"Unexpected error: {e}")
         raise HTTPException(status_code=500, detail="Unexpected error occurred.")
 
-# JSON description of vegaLiteTool
 vegaLiteJSON = {
     "name": "vegaLiteTool",
     "description": "Generate a Vega-Lite chart specification based on a dataset and a user prompt. Use this function whenever a user requests a data visualization or chart.",
     "parameters": {
         "type": "object",
         "properties": {
-            "request": {
-                "type": "object",
-                "description": "Object containing user query and dataset information.",
-                "properties": {
-                    "prompt": {
-                        "type": "string",
-                        "description": "User's request or question describing the desired chart."
-                    },
-                    "data": {
-                        "type": "object",
-                        "description": "Object representing the dataset, where keys are column names and values are arrays of data values.",
-                        "additionalProperties": True
-                    }
-                },
-                "required": ["prompt", "data"]
-            }
+            "query": {
+                "type": "string",
+                "description": "The question for the function to answer, well defined and well formatted as a string. Sometimes it may need to be expanded on from the user's original query."
+            },
         },
-        "required": ["request"],
+        "required": ["query"],
         "additionalProperties": False
     }
 }
+
 
 # JSON description of dataAnalysisTool
 dataAnalysisJSON = {
@@ -263,24 +258,12 @@ dataAnalysisJSON = {
     "parameters": {
         "type": "object",
         "properties": {
-            "request": {
-                "type": "object",
-                "description": "Object containing user query and dataset information.",
-                "properties": {
-                    "prompt": {
-                        "type": "string",
-                        "description": "User's request or question describing the desired chart."
-                    },
-                    "data": {
-                        "type": "object",
-                        "description": "Object representing the dataset, where keys are column names and values are arrays of data values.",
-                        "additionalProperties": True
-                    }
-                },
-                "required": ["prompt", "data"]
-            }
+            "query": {
+                "type": "string",
+                "description": "The question for the function to answer, well defined and well formatted as a string. Sometimes it may need to be expanded on from the user's original query."
+            },
         },
-        "required": ["request"],
+        "required": ["query"],
         "additionalProperties": False
     }
 }
@@ -294,85 +277,140 @@ tool_map = {
     "dataAnalysisTool": dataAnalysisTool
 }
 
+import re
+import json
+
+def chat(messages):
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=messages,
+        response_format={"type": "json_object"}
+    )
+    return response.choices[0].message.content
+
 @app.post("/query/", response_model=QueryResponse)
 async def query_openai(request: QueryRequest):
-    logger.info(f"Received a new request with prompt: {request.prompt}")
+    columns = list(request.model_dump()["data"][0].keys())
+    column_types = {
+        col: "categorical" if isinstance(request.model_dump()["data"][0][col], str) else "quantitative"
+        for col in columns
+    }
 
-    # Conversation history for the API
+    system_prompt = f'''
+    You are a data assistant.
+
+    You have access to this dataset with the following columns:
+    {column_types}
+
+    Answer the user question as best you can. You have access to the following tools:
+    {tools}
+
+    You run in a loop of Thought, Action, Observation in the following manner to answer the user question.
+
+    Question: the input question you must answer
+
+    Thought: you should always think about what to do
+    Action: the tool name, should be one of [{tool_map}]. If no tool need, just output "no tool"
+    Action Input: the input to the tool in a json format ({{"arg name": "arg value"}}). Otherwise, empty json object {{}}
+    Action Inputs should conform to the valid schema for each tool, both tools require the same schema:
+    
+    String: query
+
+    You will return this action and action input, then wait for the Observation.
+
+    You will be then call again with the result of the action.
+
+    Observation: the result of the action
+    ... (this Thought/Action/Action Input/Observation can repeat N times)
+    Thought: I now know the final answer
+    Final Answer: the final answer to the original input question
+
+    Please ALWAYS start with a Thought.
+
+    Please ALWAYS put your response in valid JSON format like so: 
+        Thought: 
+        Action: 
+        Action Input: 
+        Final Answer: (When you know the final answer)
+
+    '''
+
     messages = [
-        {"role": "system", "content": "You are a data analysis and visualization assistant."},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": request.prompt}
     ]
 
-    try:
-        # Initial model call to assess if a tool is needed
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=messages,
-            functions=tools  # Pass in JSON schemas for the tools
-        )
+    max_iterations = 10
+    iteration = 0
 
-        # Extract response and check for function call
-        response_message = response.choices[0].message
- 
-        if response_message.function_call:
-            # Tool call specifics
-            tool_name = response_message.function_call.name
-            arguments = json.loads(response_message.function_call.arguments)
+    while iteration < max_iterations:
+        # Get the assistant's response and add it to conversation history
+        response_message = chat(messages)
+        print_red(str(response_message))
+        messages.append({"role": "assistant", "content": response_message})
 
-            # Ensure 'data' is included in the arguments if available in the request
-            if hasattr(request, "data") and request.data:
-                arguments["request"]["data"] = request.data
+        # Use regex to search for Action and Action Input
+        match = re.search(r'"Action"\s*:\s*"([^"]+)",\s*"Action Input"\s*:\s*(\{[^}]+\})', response_message)
+        if match:
+            action_name = match.group(1)
+            if action_name == "no tool":
+                break  # Stop if no tool is needed
 
-            logger.info(f"Model selected tool: {tool_name} with arguments: {arguments}")
+            # Parse action input JSON
+            action_input = json.loads(match.group(2))
+            # logger.info(f"Model selected tool: {action_name} with arguments: {action_input}")
 
             # Locate and execute the selected tool
-            function_to_call = tool_map.get(tool_name)
+            function_to_call = tool_map.get(action_name)
+            action_input["request"] = request.model_dump()
+
             if function_to_call:
-                output = function_to_call(**arguments)
+                result = function_to_call(**action_input)
+                print_blue(str(result))
 
-                # Add tool's response to the message history
-                messages.append({
-                    "role": "function",
-                    "name": tool_name,
-                    "content": json.dumps(output)
-                })
+                # Format observation as a string
+                observation = f"Observation: action name: {action_name}, action_input: {json.dumps(action_input)}, result: {result}"
+                messages.append({"role": "assistant", "content": observation})
+
+                # If further interpretation is needed for `dataAnalysisTool`
+                if action_name == "dataAnalysisTool":
+                    response_json = chat(messages)
+                    response_message = json.loads(response_json)  # Convert JSON string to dictionary
+
+                    print_red(str(response_message))
+
+                    # Now access the 'Final Answer' field
+                    response_message_content = response_message["Final Answer"]
                 
-                # If the tool is dataAnalysis tool, we need to return it back to the model to generate the analysis 
-                analysis_prompt = f"Provide the result of the code generated above in a json object called 'description'."
-                if tool_name == "dataAnalysisTool":
-                    response = client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=messages
-                    )
-                    response_message = response.choices[0].message
+                if action_name == "vegaLiteTool":
+                    chartSpec = result.get("chartSpec", {})
 
-                # Need to make sure this accurately returns the output of the data analysis tool! 
-                # Respond with tool output based on tool type
-                print(output)
+
+                # Prepare response based on tool type
+                description = response_message_content if action_name == "dataAnalysisTool" else result.get("description", "")
+                chartSpec = chartSpec if action_name == "vegaLiteTool" else {}
+
+                # Return the final structured response
                 return QueryResponse(
-                    description=output.get("description") if tool_name == "vegaLiteTool" else response_message.content,
-                    chartSpec=output.get("chartSpec", {}) if tool_name == "vegaLiteTool" else {}
+                    description=description,
+                    chartSpec=chartSpec if chartSpec else {}
                 )
 
-        # If no tool was used, return direct model response
-        messages.append(response_message)
-        return QueryResponse(
-            description=response_message.content,
-            chartSpec={}
-        )
+        # No action identified; return final response
+        else:
+            return QueryResponse(
+                description=response_message,
+                chartSpec={}
+            )
 
-    except openai.RateLimitError as e:
-        logger.error(f"Rate limit error: {e}")
-        raise HTTPException(status_code=429, detail="OpenAI API rate limit exceeded.")
+        iteration += 1
 
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON decode error: {e}")
-        raise HTTPException(status_code=500, detail="Error decoding JSON response.")
+    logger.warning("Max iterations reached without resolving the query.")
+    return QueryResponse(
+        description="Unable to complete the request within iteration limits.",
+        chartSpec={}
+    )
 
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 # Root endpoint
 @app.get("/")
