@@ -236,7 +236,7 @@ def dataAnalysisTool(query: str, request: dict) -> str:
 
 vegaLiteJSON = {
     "name": "vegaLiteTool",
-    "description": "Generate a Vega-Lite chart specification based on a dataset and a user prompt. Use this function whenever a user requests a data visualization or chart.",
+    "description": "Generate a Vega-Lite chart specification based on a dataset and a user prompt. Use this function whenever a user requests a data visualization or chart. This function only accepts a query!",
     "parameters": {
         "type": "object",
         "properties": {
@@ -297,37 +297,27 @@ async def query_openai(request: QueryRequest):
     }
 
     system_prompt = f'''
-    You are a data assistant.
+    You are a data assistant. You have access to this dataset with the following columns: {column_types}
 
-    You have access to this dataset with the following columns:
-    {column_types}
-
-    Answer the user question as best you can. You have access to the following tools:
-    {tools}
+    Answer the user question as best you can. You have access to the following tools: {tools}
 
     You run in a loop of Thought, Action, Observation in the following manner to answer the user question.
 
     Question: the input question you must answer
-
     Thought: you should always think about what to do
-    Action: the tool name, should be one of [{tool_map}]. If no tool need, just output "no tool"
+    Action: the tool name, should be one of [{tool_map}]. If no tool needed, just output "no tool"
     Action Input: the input to the tool in a json format ({{"arg name": "arg value"}}). Otherwise, empty json object {{}}
     Action Inputs should conform to the valid schema for each tool, both tools require the same schema:
-    
+
     String: query
 
-    You will return this action and action input, then wait for the Observation.
-
-    You will be then call again with the result of the action.
+    You will return this action and action input, then wait for the Observation. You will be called again with the result of the action.
 
     Observation: the result of the action
-    ... (this Thought/Action/Action Input/Observation can repeat N times)
     Thought: I now know the final answer
     Final Answer: the final answer to the original input question
 
-    Please ALWAYS start with a Thought.
-
-    Please ALWAYS put your response in valid JSON format like so: 
+    Please ALWAYS start with a Thought. Please ALWAYS put your response in valid JSON format like so:
         Thought: 
         Action: 
         Action Input: 
@@ -336,7 +326,6 @@ async def query_openai(request: QueryRequest):
 
     Make sure to describe your final answer in a fully fleshed out thought that is a valid sentence.
     If you are displaying a chart, you should also describe it in the Final Answer.
-
     '''
 
     messages = [
@@ -344,64 +333,57 @@ async def query_openai(request: QueryRequest):
         {"role": "user", "content": request.prompt}
     ]
 
+    description = "No final answer provided."
+    chartSpec = {}
+
     max_iterations = 10
     iteration = 0
 
     while iteration < max_iterations:
-        # Get the assistant's response and add it to conversation history
         response_message = chat(messages)
         print_red(str(response_message))
         messages.append({"role": "assistant", "content": response_message})
 
-        # Use regex to search for Action and Action Input
         match = re.search(r'"Action"\s*:\s*"([^"]+)",\s*"Action Input"\s*:\s*(\{[^}]+\})', response_message)
         if match:
             action_name = match.group(1)
             if action_name == "no tool":
                 break  # Stop if no tool is needed
 
-            # Parse action input JSON
             action_input = json.loads(match.group(2))
             logger.info(f"Model selected tool: {action_name}")
 
-            # Locate and execute the selected tool
             function_to_call = tool_map.get(action_name)
             action_input["request"] = request.model_dump()
-
             if function_to_call:
                 result = function_to_call(**action_input)
                 print_blue(str(result))
 
-                # Format observation as a string
                 observation = f"Observation: action name: {action_name}, action_input: {json.dumps(action_input)}, result: {result}"
                 messages.append({"role": "assistant", "content": observation})
+                
+        # Check if the response contains the final answer
+        if "Final Answer" in response_message:
+            final_answer = str(json.loads(response_message)["Final Answer"])
+            description = final_answer
 
-                # If further interpretation is needed for `dataAnalysisTool`
-                response = chat(messages)
-                response_message = json.loads(response)  # Convert JSON string to dictionary
+        # Check if the response message contains the chart specification 
+        if "chartSpec" in response_message:
+            chartSpec = json.loads(response_message)["chartSpec"]
+            break
 
-                print_red(str(response_message))
+        if not match:
+            break
 
-                description = str(response_message["Final Answer"]) if "Final Answer" in response_message else ""
-                # Prepare response based on tool type
-                chartSpec = str(response_message["chartSpec"]) if "chartSpec" in response_message else {}
-        
-        iteration += 1  
+        iteration += 1
 
-
-        # Return the final structured response
-        return QueryResponse(
-            description=description if description else "No final answer provided.",
-            chartSpec=chartSpec if chartSpec else {}
-        )
-
-
-    logger.warning("Max iterations reached without resolving the query.")
+    # Return outside the loop after all actions and iterations are processed
     return QueryResponse(
-        description="Unable to complete the request within iteration limits.",
-        chartSpec={}
+        description=description,
+        chartSpec=chartSpec
     )
 
+logger.warning("Max iterations reached without resolving the query.")
 
 # Root endpoint
 @app.get("/")
