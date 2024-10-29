@@ -25,8 +25,10 @@ def print_blue(*strings):
 load_dotenv()
 
 app = FastAPI(debug=True)
-
 client = OpenAI()
+
+# initialize core_data as an empty DataFrame
+core_data = pd.DataFrame()
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -60,7 +62,7 @@ class QueryResponse(BaseModel):
     chartSpec: dict  # Vega-Lite chart specification
 
 # TOOL 1: Tool to generate Vega-Lite chart from the dataset
-def vegaLiteTool(query: str, request: dict):
+def vegaLiteTool(query: str, request: dict, columns: list):
     # Check if data is provided
     if not request.get("data"):
         return {
@@ -69,19 +71,12 @@ def vegaLiteTool(query: str, request: dict):
         }
 
     try:
-        # Gather dataset structure information for GPT-4
-        columns = list(request["data"][0].keys())
-        column_types = {
-            col: "categorical" if isinstance(request["data"][0][col], str) else "quantitative"
-            for col in columns
-        }
-        
+
         # Construct the prompt for Vega-Lite specification generation
         prompt = f"""
-        You are a data visualization assistant. The user provided a dataset with columns: 
-        {json.dumps(column_types, indent=2)}.
+        You are a data visualization assistant. The user provided this data filtered on the following columns: {columns}
         
-        Here is the full dataset: {json.dumps(request["data"], indent=2)}.
+        Here is the dataset: {core_data}.
         
         The user has requested visualization with the question: {query}.
         
@@ -147,9 +142,9 @@ def sanitize_input(query: str) -> str:
     return query
 
 # TOOL 1 - Helper function: Run the python code 
-def execute_panda_dataframe_code(code: str, dataframe) -> str:
+def execute_panda_dataframe_code(code: str, dataframe) -> tuple:
     """
-    Execute the provided Python code and return captured output.
+    Execute the provided Python code and return both captured output and the modified DataFrame.
     """
     old_stdout = sys.stdout  # Save current stdout to restore later
     sys.stdout = mystdout = StringIO()  # Redirect stdout to capture prints
@@ -157,18 +152,24 @@ def execute_panda_dataframe_code(code: str, dataframe) -> str:
     try:
         # Sanitize the input code
         cleaned_code = sanitize_input(code)
-        # Execute the sanitized code
-        exec(cleaned_code)
-        # Restore stdout and return captured output
+        # Create a local dictionary to serve as the local namespace for execution
+        local_vars = {'dataframe': dataframe}
+        # Execute the sanitized code with the DataFrame in the local namespace
+        exec(cleaned_code, globals(), local_vars)
+        # Capture the possibly modified DataFrame
+        modified_dataframe = local_vars['dataframe']
+        # Restore stdout
         sys.stdout = old_stdout
-        return mystdout.getvalue()
+        # Return the captured output and the modified DataFrame
+        return mystdout.getvalue(), modified_dataframe
     except Exception as e:
         # Restore stdout and return the error message if an exception occurs
         sys.stdout = old_stdout
-        return repr(e)
+        return repr(e), dataframe
 
 # TOOL 2: Data analysis tool that receives a code query and a DataFrame
 def dataAnalysisTool(query: str, request: dict) -> str:
+    global core_data 
     """
     Use GPT-4 to generate Python code for analyzing the dataset.
     Execute the generated code and return the result.
@@ -180,20 +181,18 @@ def dataAnalysisTool(query: str, request: dict) -> str:
             "chartSpec": {}
         }
     # Gather dataset structure information for GPT-4
-    columns = list(request["data"][0].keys())
-    column_types = {
-        col: "categorical" if isinstance(request["data"][0][col], str) else "quantitative"
+    columns = core_data.columns
+    column_types = { 
+        col: "categorical" if core_data[col].dtype == "object" else "quantitative"
         for col in columns
     }
 
-    # Turn request.data in pandas dataframe
-    dataframe = pd.DataFrame(request.get("data"))
+    dataframe = core_data
     # Generate a prompt for the OpenAI API to create the analysis code
     code_prompt = f"""
     You are a data analysis assistant. A user has asked you to: {query}
     The dataset is provided in a variable named 'dataframe'. 
-    The dataframe has the following columns: 
-        {json.dumps(column_types, indent=2)}.
+    The dataframe has the following columns: {column_types}.
 
     Provide Python code using the 'dataframe' variable to perform the analysis, 
     and include print(...) statements to display the output directly.
@@ -218,7 +217,15 @@ def dataAnalysisTool(query: str, request: dict) -> str:
         gpt_generated_code = gpt_response.choices[0].message.content
 
         # Execute the generated code and capture output
-        return execute_panda_dataframe_code(gpt_generated_code, dataframe=dataframe)
+        output, modified_df = execute_panda_dataframe_code(gpt_generated_code, dataframe)
+
+        # Set the new dataframe values 
+        core_data = modified_df
+
+        print_blue(str(core_data))
+
+        return output
+
 
     except openai.RateLimitError as e:
         logger.error(f"Rate limit error: {e}")
@@ -236,17 +243,17 @@ def dataAnalysisTool(query: str, request: dict) -> str:
 def tableTool(query: str, data: dict):
     # TODO later
 
-    # Prompt the model to generate a table that will be modeled in react gfm off of the dataset
+    # Prompt the model to generate a table that will be modeled in remark gfm off of the dataset
     prompt = f"""
     You are a data assistant. The user has requested a table based on the dataset. The user has asked you to: {query}
     
-    This is is the full dataset that has been passed to you: {json.dumps(data, indent=2)}.
+    This is is the data that has been passed to you to put in a table: {json.dumps(data, indent=2)}.
 
-    Please provide a markdown table that can be rendered in React GFM based on the dataset.
+    Please provide a markdown table that can be rendered in Remark GFM based on the dataset.
 
     You will provide the response in this JSON format:
     {{
-        "table": "The markdown table to be rendered in React GFM."
+        "table": "The markdown table to be rendered in Remark GFM"
     }}
     """
 
@@ -288,7 +295,7 @@ def tableTool(query: str, data: dict):
 # JSON description of tableTool
 tableJSON = {
     "name": "tableTool",
-    "description": "Generate a table based on a dataset and a user prompt. Use this function whenever a user requests a table based on a dataset.",
+    "description": "Generate a table based on data and a user prompt. Use this function whenever a user requests a table based on a dataset. You should provide this function with only the data needed for the table!",
     "parameters": {
         "type": "object",
         "properties": {
@@ -298,7 +305,7 @@ tableJSON = {
             },
             "data": {
                 "type": "object",
-                "description": "The dataset to generate a table from in valid JSON format"
+                "description": "The dataset that you want to be used in your table. This should be a dictionary of the data you want to be used in the table."
             }
         },
         "required": ["query", "data"],
@@ -317,6 +324,10 @@ vegaLiteJSON = {
                 "type": "string",
                 "description": "The question for the function to answer, well defined and well formatted as a string. Sometimes it may need to be expanded on from the user's original query."
             },
+            "columns": {
+                "type": "object",
+                "description": "All relevant columns that you would like to be used in the chart. This should be a list of the names of the columns you want to be used in the chart."
+            }
         },
         "required": ["query"],
         "additionalProperties": False
@@ -361,48 +372,52 @@ def chat(messages):
 
 @app.post("/query/", response_model=QueryResponse)
 async def query_openai(request: QueryRequest):
+    global core_data
+    core_data = pd.DataFrame(request.data)
 
     # Extract the columns and their types from the dataset
-    columns = list(request.model_dump()["data"][0].keys())
+    columns = core_data.columns
     column_types = {
-        col: "categorical" if isinstance(request.model_dump()["data"][0][col], str) else "quantitative"
+        col: "categorical" if core_data[col].dtype == "object" else "quantitative"
         for col in columns
     }
 
     # Define a ReAct assistant prompt 
     system_prompt = f'''
-    You are a data assistant. You have access to this dataset with the following columns: {column_types}
+        You are a data assistant with access to a dataset containing the following columns: {column_types}.
+        Utilize the tools provided: {tools}, to answer user queries.
 
-    Answer the user question as best you can. You have access to the following tools: {tools}
+        Workflow:
+        1. Question: The input question to be answered.
+        2. Thought: Detail your thought process for addressing the question.
+        3. Action: Specify the tool used from [{tool_map}]. Use "no tool" if none is required.
+        4. Action Input: Provide arguments in JSON format ({{"arg name": "arg value"}}). If no tool is used, use an empty JSON object {{}}.
+        Ensure that inputs conform to the schema:
+        - String: query
+        5. Observation: Outcome of the action you executed.
+        6. Final Answer: Provide a comprehensive answer to the original question, incorporating any observations and insights.
 
-    You run in a loop of Thought, Action, Observation in the following manner to answer the user question.
+        IMPORTANT: The dataset is very long and the VegaLiteTool may struggle to produce a chart off of the full dataset, so please filter the data by querying the dataAnalysisTool first which can reduce the dataset size to only what you need!
 
-    Question: the input question you must answer
-    Thought: you should always think about what to do
-    Action: the tool name, should be one of [{tool_map}]. If no tool needed, just output "no tool"
-    Action Input: the input to the tool in a json format ({{"arg name": "arg value"}}). Otherwise, empty json object {{}}
-    Action Inputs should conform to the valid schema for each tool, both tools require the same schema:
+        Responses should be structured in valid JSON format, all fields are required though some may be empty:
 
-    String: query
+            "Thought": "Your thought process.",
+            "Action": "The tool being used.",
+            "Action Input": {{"arg name": "arg value"}},
+            "Observation": "Result of the action.",
+            "Final Answer": "Comprehensive answer to the query.",
+            "chartSpec": {"dict"},  # Fill in after receiving the output of vegaLiteTool
+            "table": ""  # Markdown table to be rendered, fill in after receiving the output of the tableTool
 
-    You will return this action and action input, then wait for the Observation. You will be called again with the result of the action.
+        Note: Do not fill any of these in until you have recieved the output of your chosen action, only fill out fields that are relevant. 
+        All fields must be present, even if they are empty strings or an empty dict. 
 
-    Observation: the result of the action
-    Thought: your thought process in answering the user question
-    Final Answer: the final answer to the original input question
-
-    Please ALWAYS start with a Thought. Please ALWAYS put your response in valid JSON format like so:
-        
-        "Thought": String - your thought process,
-        "Action": String - the action you are taking (one of the tools),
-        "Action Input": Dict - the input to the action,
-        "Final Answer": String - the final answer to the original input question
-        "chartSpec": Dict - The valid JSON Vega-Lite chart specification (Wait to fill this in until recieving the output of the vegaLiteTool)",
-        "table": String - "Markdown table to be rendered in react gfm (Wait to fill this in until recieving the output of the tableTool)"
-
-    Make sure to describe your final answer in a fully fleshed out thought that is a valid sentence.
-    If you are displaying a chart, you should also describe it in the Final Answer.
+        Guidelines:
+        - Always initiate with a Thought.
+        - Prioritize using dataAnalysisTool first, followed by tableTool, and vegaLiteTool if visualization is required.
+        - If a chart is displayed, describe it in the Final Answer.
     '''
+
     # Initial messages
     messages = [
         {"role": "system", "content": system_prompt},
@@ -432,7 +447,8 @@ async def query_openai(request: QueryRequest):
             logger.info(f"Model selected tool: {action_name}")
 
             function_to_call = tool_map.get(action_name)
-            action_input["request"] = request.model_dump()
+            if action_name == "vegaLiteTool" or action_name == "dataAnalysisTool":
+                action_input["request"] = request.model_dump()
 
             # make work for table tool too 
             if function_to_call:
