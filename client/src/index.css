@@ -29,3 +29,21 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+/* Additional global styles */
+.markdown-table table {
+  @apply border-collapse;
+}
+
+.markdown-table td, .markdown-table th {
+  @apply border border-gray-300 p-2;
+}
+
+.markdown-table th {
+  @apply bg-gray-100;
+}
+
+.markdown-table tr:nth-child(even) {
+  @apply bg-gray-50;
+}
+

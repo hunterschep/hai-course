@@ -3,6 +3,9 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import * as d3 from "d3-dsv";
 import { VegaLite } from "react-vega";
 import { sendMessageToAPI } from "./apis/api";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import React from "react";
 
 const svgPath = process.env.PUBLIC_URL + "/fade-stagger-circles.svg";
 
@@ -169,24 +172,34 @@ function App() {
                     ) : (
                         chatHistory.map((chat, index) => (
                             <div key={index} className={`mb-4 flex ${chat.sender === "user" ? "justify-end" : "justify-start"} items-center`}>
-                                {chat.sender === "bot" && (
-                                    <img src={`${process.env.PUBLIC_URL}/user.png`} alt="Bot" className="w-8 sm:w-10 h-8 sm:h-10 rounded-full object-cover mr-3" />
+                              {chat.sender === "bot" && (
+                                <img src={`${process.env.PUBLIC_URL}/user.png`} alt="Bot" className="w-8 sm:w-10 h-8 sm:h-10 rounded-full object-cover mr-3" />
+                              )}
+                              <div className={`flex flex-col items-${chat.sender === "user" ? "end" : "start"} max-w-xs sm:max-w-lg`}>
+                                {chat.chartSpec && (
+                                  <div className="mb-2 sm:mb-3 max-w-full">
+                                    <VegaLiteWithErrorHandling spec={chat.chartSpec} />
+                                  </div>
                                 )}
-                                <div className={`flex flex-col items-${chat.sender === "user" ? "end" : "start"} max-w-xs sm:max-w-lg`}>
-                                    {chat.chartSpec && (
-                                        <div className="mb-2 sm:mb-3 max-w-full">
-                                            <VegaLiteWithErrorHandling spec={chat.chartSpec} />
-                                        </div>
-                                    )}
-                                    <div className={`p-3 sm:p-4 rounded-lg shadow-md ${chat.sender === "user" ? "bg-blue-500 text-white" : "bg-gray-200 text-gray-900"}`}>
-                                        <div className="text-xs sm:text-base break-words">{chat.message}</div>
-                                    </div>
+                                {chat.table && (
+                                  <div className="mb-2 sm:mb-3 max-w-full bg-white p-4 rounded-lg shadow-lg">
+                                    {/* Render Markdown tables */}
+                                    <ReactMarkdown
+                                        remarkPlugins={[remarkGfm]}
+                                        children={chat.table}
+                                        className="markdown-table text-sm sm:text-base break-words"
+                                    />
+                                  </div>
+                                )}
+                                <div className={`p-3 sm:p-4 rounded-lg shadow-md ${chat.sender === "user" ? "bg-blue-500 text-white" : "bg-gray-200 text-gray-900"}`}>
+                                  <div className="text-xs sm:text-base break-words">{chat.message}</div>
                                 </div>
-                                {chat.sender === "user" && (
-                                    <img src={`${process.env.PUBLIC_URL}/user.png`} alt="User" className="w-8 sm:w-10 h-8 sm:h-10 rounded-full object-cover ml-3" />
-                                )}
+                              </div>
+                              {chat.sender === "user" && (
+                                <img src={`${process.env.PUBLIC_URL}/user.png`} alt="User" className="w-8 sm:w-10 h-8 sm:h-10 rounded-full object-cover ml-3" />
+                              )}
                             </div>
-                        ))
+                          ))
                     )}
                     {isThinking && (
                         <div className="text-gray-500 text-center mb-5 flex items-center justify-center">

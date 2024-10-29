@@ -22,8 +22,8 @@ export const sendMessageToAPI = async (message, data, chatHistory, setChatHistor
 
     if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
 
-    const { chartSpec, description } = await res.json();
-    setChatHistory(prev => [...prev, { sender: 'bot', message: description, chartSpec }]);
+    const { chartSpec, description, table } = await res.json();
+    setChatHistory(prev => [...prev, { sender: 'bot', message: description, chartSpec, table}]);
   } catch (error) {
     console.error("Error fetching the response:", error);
     setChatHistory(prev => [...prev, { sender: 'bot', message: "An error occurred. Please try again." }]);

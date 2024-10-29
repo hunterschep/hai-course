@@ -56,6 +56,7 @@ class QueryRequest(BaseModel):
 
 class QueryResponse(BaseModel):
     description: str
+    table: str # markdown code for table 
     chartSpec: dict  # Vega-Lite chart specification
 
 # TOOL 1: Tool to generate Vega-Lite chart from the dataset
@@ -89,7 +90,7 @@ def vegaLiteTool(query: str, request: dict):
 
         You will provide the response in this JSON format: 
         {{
-            "description": "Description of the chart and its features.",
+            "description": "Description of the chart with some complementary analysis.",
             "chartSpec": {{
                 The valid Vega-Lite JSON chart specification!
             }}
@@ -231,6 +232,81 @@ def dataAnalysisTool(query: str, request: dict) -> str:
         logger.error(f"Unexpected error: {e}")
         raise HTTPException(status_code=500, detail="Unexpected error occurred.")
 
+# TOOL 3: Tool to generate a table from the dataset
+def tableTool(query: str, data: dict):
+    # TODO later
+
+    # Prompt the model to generate a table that will be modeled in react gfm off of the dataset
+    prompt = f"""
+    You are a data assistant. The user has requested a table based on the dataset. The user has asked you to: {query}
+    
+    This is is the full dataset that has been passed to you: {json.dumps(data, indent=2)}.
+
+    Please provide a markdown table that can be rendered in React GFM based on the dataset.
+
+    You will provide the response in this JSON format:
+    {{
+        "table": "The markdown table to be rendered in React GFM."
+    }}
+    """
+
+    try:
+        # Call OpenAI API to generate the table 
+        gpt_response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a data visualization assistant."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+
+        # Extract and parse the response
+        response_content = gpt_response.choices[0].message.content
+        table_response_json = json.loads(response_content)
+
+        # Extract description and chartSpec from response
+        # Extract the description and chartSpec
+
+        table = table_response_json.get("table", "")
+        
+        return table
+    
+    except openai.RateLimitError as e:
+        logger.error(f"RateLimitError: {str(e)}")
+        raise HTTPException(status_code=429, detail=f"OpenAI API rate limit exceeded.")
+
+    except json.JSONDecodeError as e:
+        logger.error(f"JSONDecodeError: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error decoding JSON response.")
+
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Unexpected error occurred.")
+
+
+# JSON description of tableTool
+tableJSON = {
+    "name": "tableTool",
+    "description": "Generate a table based on a dataset and a user prompt. Use this function whenever a user requests a table based on a dataset.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "The question for the function to answer, well defined and well formatted as a string. Sometimes it may need to be expanded on from the user's original query."
+            },
+            "data": {
+                "type": "object",
+                "description": "The dataset to generate a table from in valid JSON format"
+            }
+        },
+        "required": ["query", "data"],
+        "additionalProperties": False
+    }
+}
+
 # JSON description of vegaLiteTool
 vegaLiteJSON = {
     "name": "vegaLiteTool",
@@ -271,7 +347,8 @@ tools = [vegaLiteJSON, dataAnalysisJSON]
 # Mapping tools to their functions 
 tool_map = {
     "vegaLiteTool": vegaLiteTool,
-    "dataAnalysisTool": dataAnalysisTool
+    "dataAnalysisTool": dataAnalysisTool,
+    "tableTool": tableTool
 }
 
 # Chat functionality with JSON 
@@ -312,15 +389,17 @@ async def query_openai(request: QueryRequest):
     You will return this action and action input, then wait for the Observation. You will be called again with the result of the action.
 
     Observation: the result of the action
-    Thought: I now know the final answer
+    Thought: your thought process in answering the user question
     Final Answer: the final answer to the original input question
 
     Please ALWAYS start with a Thought. Please ALWAYS put your response in valid JSON format like so:
-        Thought: 
-        Action: 
-        Action Input: 
-        Final Answer: (When you know the final answer)
-        chartSpec: The valid JSON Vega-Lite chart specification (YOU MUST provide this if you are using the vegaLiteTool)
+        
+        "Thought": String - your thought process,
+        "Action": String - the action you are taking (one of the tools),
+        "Action Input": Dict - the input to the action,
+        "Final Answer": String - the final answer to the original input question
+        "chartSpec": Dict - The valid JSON Vega-Lite chart specification (YOU MUST provide this if you are using the vegaLiteTool)",
+        "table": String - "Markdown table to be rendered in react gfm if the user requests it, return only the markdown"
 
     Make sure to describe your final answer in a fully fleshed out thought that is a valid sentence.
     If you are displaying a chart, you should also describe it in the Final Answer.
@@ -333,6 +412,7 @@ async def query_openai(request: QueryRequest):
 
     description = "No final answer provided."
     chartSpec = {}
+    table = ""
 
     max_iterations = 10
     iteration = 0
@@ -354,35 +434,40 @@ async def query_openai(request: QueryRequest):
 
             function_to_call = tool_map.get(action_name)
             action_input["request"] = request.model_dump()
+
+            # make work for table tool too 
             if function_to_call:
                 result = function_to_call(**action_input)
                 print_blue(str(result))
 
                 observation = f"Observation: action name: {action_name}, action_input: {json.dumps(action_input)}, result: {result}"
                 messages.append({"role": "assistant", "content": observation})
-                
-        # Check for final answer 
-        if "Final Answer" in response_message:
-            final_answer = str(json.loads(response_message)["Final Answer"])
-            description = final_answer
-
-        # Check for chart specification 
-        if "chartSpec" in response_message:
-            chartSpec = json.loads(response_message)["chartSpec"]
-            break
-
+        
         if not match:
-            break
+            # Check for final answer 
+            if "Final Answer" in response_message:
+                final_answer = str(json.loads(response_message)["Final Answer"])
+                description = final_answer
+
+            # Check for chart specification 
+            if "chartSpec" in response_message:
+                chartSpec = json.loads(response_message)["chartSpec"]
+                
+
+            # Check for table
+            if "table" in response_message:
+                table = json.loads(response_message)["table"]
+                break
+
 
         iteration += 1
 
     # Return outside the loop after all actions and iterations are processed
     return QueryResponse(
         description=description,
+        table=table,
         chartSpec=chartSpec
     )
-
-logger.warning("Max iterations reached without resolving the query.")
 
 # Root endpoint
 @app.get("/")
