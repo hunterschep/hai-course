@@ -21,6 +21,9 @@ def print_red(*strings):
 def print_blue(*strings):
   print('\033[94m' + ' '.join(strings) + '\033[0m')
 
+def print_green(*strings):
+  print('\033[92m' + ' '.join(strings) + '\033[0m')
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -110,6 +113,8 @@ def vegaLiteTool(query: str, request: dict):
             temperature=0.3,
             response_format={"type": "json_object"}
         )
+
+        print_green(str(gpt_response))
 
         # Extract and parse the response
         response_content = gpt_response.choices[0].message.content
@@ -284,7 +289,6 @@ def tableTool(query: str, data: dict):
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Unexpected error occurred.")
-
 
 # JSON description of tableTool
 tableJSON = {
