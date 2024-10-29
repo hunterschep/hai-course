@@ -398,7 +398,7 @@ async def query_openai(request: QueryRequest):
         "Action Input": Dict - the input to the action,
         "Final Answer": String - the final answer to the original input question
         "chartSpec": Dict - The valid JSON Vega-Lite chart specification (Wait to fill this in until recieving the output of the vegaLiteTool)",
-        "table": String - "Markdown table to be rendered in react gfm if the user requests it, return only the markdown"
+        "table": String - "Markdown table to be rendered in react gfm (Wait to fill this in until recieving the output of the tableTool)"
 
     Make sure to describe your final answer in a fully fleshed out thought that is a valid sentence.
     If you are displaying a chart, you should also describe it in the Final Answer.
