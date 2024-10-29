@@ -64,6 +64,11 @@ class QueryResponse(BaseModel):
 # TOOL 1: Tool to generate Vega-Lite chart from the dataset
 def vegaLiteTool(query: str, request: dict):
     global core_data
+        
+    # Increase display settings for debugging
+    pd.set_option('display.max_rows', None)  # or use a high number like 500
+    pd.set_option('display.max_columns', None)  # Ensure all columns are displayed
+    pd.set_option('display.width', 1000)  # Increase the width of each row
 
     # Check if data is provided
     if not request.get("data"):
@@ -73,8 +78,6 @@ def vegaLiteTool(query: str, request: dict):
         }
 
     try:
-
-        print_red(str(core_data))
         # Construct the prompt for Vega-Lite specification generation
         prompt = f"""
         You are a data visualization assistant. The user provided this data with these columns: {core_data.columns}.
@@ -199,11 +202,11 @@ def dataAnalysisTool(query: str, request: dict) -> str:
 
     Provide Python code using the 'dataframe' variable to perform the analysis, 
     and include print(...) statements to display the output directly.
+    only use print(...on the output of the analysis and some strings explaining it concisely. 
     You should provide only the python code. 
-    In performing the analysis, trim down the dataframe to only relevant columns / rows for this query, as the dataset is very large.
-    At the end of the code, set dataframe to the modified dataframe. Ideally our modified dataframe should have less than ~250 rows. 
+    In performing the analysis, trim down the dataframe to only relevant columns / rows for this query and identifying each row as the dataset is very large.
+    At the end of the code, set dataframe to the modified dataframe. 
 
-    You will then be reprompted with the result of the code and will be asked to provide some analysis of the results.
     """
 
     try:
@@ -223,10 +226,17 @@ def dataAnalysisTool(query: str, request: dict) -> str:
         # Execute the generated code and capture output
         output, modified_df = execute_panda_dataframe_code(gpt_generated_code, dataframe)
 
+        # return output as json object with description
+        output_object = {
+            "description": output
+        }
+
         # Update core_data with the modified DataFrame explicitly here
         core_data = modified_df
 
-        return output
+        return output_object
+
+
     except openai.RateLimitError as e:
         logger.error(f"Rate limit error: {e}")
         raise HTTPException(status_code=429, detail="OpenAI API rate limit exceeded.")
@@ -246,15 +256,17 @@ def tableTool(query: str, data: dict):
     # Prompt the model to generate a table that will be modeled in remark gfm off of the dataset
     prompt = f"""
     You are a data assistant. The user has requested a table based on the dataset. The user has asked you to: {query}
-    
-    This is is the data that has been passed to you to put in a table: {json.dumps(data, indent=2)}.
 
     Please provide a markdown table that can be rendered in Remark GFM based on the dataset.
 
     You will provide the response in this JSON format:
     {{
         "table": "The markdown table to be rendered in Remark GFM"
+        "description": "Description of the table features and analysis."
     }}
+    
+    This is is the data that has been passed to you to put in a table: {json.dumps(data, indent=2)}.
+
     """
 
     try:
@@ -400,10 +412,10 @@ async def query_openai(request: QueryRequest):
             "Thought": "Your thought process.",
             "Action": "The tool being used.",
             "Action Input": {{"arg name": "arg value"}},
-            "Observation": "Result of the action.",
+            "Observation": "Result of the action chosen above, wait to fill in until you have the output.",
             "Final Answer": "Comprehensive answer to the query.",
-            "chartSpec": {"dict"},  # Fill in after receiving the output of vegaLiteTool
-            "table": ""  # Markdown table to be rendered, fill in after receiving the output of the tableTool
+            "chartSpec": {"dict"},  Fill in after receiving the output of vegaLiteTool - should be the EXACT 'chartSpec' output from the tool
+            "table": ""  Markdown table to be rendered, fill in after receiving the output of the tableTool
 
         Note: Do not fill any of these in until you have recieved the output of your chosen action, only fill out fields that are relevant. 
         All fields must be present, even if they are empty strings or an empty dict. 
@@ -430,7 +442,7 @@ async def query_openai(request: QueryRequest):
     # ReAct loop 
     while iteration < max_iterations:
         response_message = chat(messages)
-        print_red(str(response_message))
+        print_red("Response: ", response_message)
         messages.append({"role": "assistant", "content": response_message})
 
         match = re.search(r'"Action"\s*:\s*"([^"]+)",\s*"Action Input"\s*:\s*(\{[^}]+\})', response_message)
@@ -449,27 +461,24 @@ async def query_openai(request: QueryRequest):
             # make work for table tool too 
             if function_to_call:
                 result = function_to_call(**action_input)
-                print_blue(str(result))
-
-                observation = f"Observation: action name: {action_name}, action_input: {json.dumps(action_input)}, result: {result}"
+                print_blue("Result: ", str(result))
+                observation = f"Observation: action name: {action_name}, action_input: {json.dumps(action_input)}, result: {result['description']}"
                 messages.append({"role": "assistant", "content": observation})
+
+            # Check for chart specification 
+            if "chartSpec" in result and tool_map.get(action_name) == vegaLiteTool:
+                chartSpec = result['chartSpec']
+                print_blue("Chart Spec: ", str(chartSpec))
+
+            if "table" in result and tool_map.get(action_name) == tableTool:
+                table = result['table']
+                break
         
         if not match:
             # Check for final answer 
             if "Final Answer" in response_message:
                 final_answer = str(json.loads(response_message)["Final Answer"])
                 description = final_answer
-
-            # Check for chart specification 
-            if "chartSpec" in response_message:
-                chartSpec = json.loads(response_message)["chartSpec"]
-                
-
-            # Check for table
-            if "table" in response_message:
-                table = json.loads(response_message)["table"]
-                break
-
 
         iteration += 1
 
