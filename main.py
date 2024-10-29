@@ -62,7 +62,9 @@ class QueryResponse(BaseModel):
     chartSpec: dict  # Vega-Lite chart specification
 
 # TOOL 1: Tool to generate Vega-Lite chart from the dataset
-def vegaLiteTool(query: str, request: dict, columns: list):
+def vegaLiteTool(query: str, request: dict):
+    global core_data
+
     # Check if data is provided
     if not request.get("data"):
         return {
@@ -72,9 +74,10 @@ def vegaLiteTool(query: str, request: dict, columns: list):
 
     try:
 
+        print_red(str(core_data))
         # Construct the prompt for Vega-Lite specification generation
         prompt = f"""
-        You are a data visualization assistant. The user provided this data filtered on the following columns: {columns}
+        You are a data visualization assistant. The user provided this data with these columns: {core_data.columns}.
         
         Here is the dataset: {core_data}.
         
@@ -197,10 +200,11 @@ def dataAnalysisTool(query: str, request: dict) -> str:
     Provide Python code using the 'dataframe' variable to perform the analysis, 
     and include print(...) statements to display the output directly.
     You should provide only the python code. 
+    In performing the analysis, trim down the dataframe to only relevant columns / rows for this query, as the dataset is very large.
+    At the end of the code, set dataframe to the modified dataframe. Ideally our modified dataframe should have less than ~250 rows. 
 
     You will then be reprompted with the result of the code and will be asked to provide some analysis of the results.
     """
-
 
     try:
         # Call OpenAI API to generate analysis code
@@ -219,14 +223,10 @@ def dataAnalysisTool(query: str, request: dict) -> str:
         # Execute the generated code and capture output
         output, modified_df = execute_panda_dataframe_code(gpt_generated_code, dataframe)
 
-        # Set the new dataframe values 
+        # Update core_data with the modified DataFrame explicitly here
         core_data = modified_df
 
-        print_blue(str(core_data))
-
         return output
-
-
     except openai.RateLimitError as e:
         logger.error(f"Rate limit error: {e}")
         raise HTTPException(status_code=429, detail="OpenAI API rate limit exceeded.")
@@ -324,10 +324,6 @@ vegaLiteJSON = {
                 "type": "string",
                 "description": "The question for the function to answer, well defined and well formatted as a string. Sometimes it may need to be expanded on from the user's original query."
             },
-            "columns": {
-                "type": "object",
-                "description": "All relevant columns that you would like to be used in the chart. This should be a list of the names of the columns you want to be used in the chart."
-            }
         },
         "required": ["query"],
         "additionalProperties": False
