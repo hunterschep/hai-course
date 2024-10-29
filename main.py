@@ -21,9 +21,6 @@ def print_red(*strings):
 def print_blue(*strings):
   print('\033[94m' + ' '.join(strings) + '\033[0m')
 
-def print_green(*strings):
-  print('\033[92m' + ' '.join(strings) + '\033[0m')
-
 # Load environment variables from .env file
 load_dotenv()
 
@@ -113,8 +110,6 @@ def vegaLiteTool(query: str, request: dict):
             temperature=0.3,
             response_format={"type": "json_object"}
         )
-
-        print_green(str(gpt_response))
 
         # Extract and parse the response
         response_content = gpt_response.choices[0].message.content
@@ -402,7 +397,7 @@ async def query_openai(request: QueryRequest):
         "Action": String - the action you are taking (one of the tools),
         "Action Input": Dict - the input to the action,
         "Final Answer": String - the final answer to the original input question
-        "chartSpec": Dict - The valid JSON Vega-Lite chart specification (YOU MUST provide this if you are using the vegaLiteTool)",
+        "chartSpec": Dict - The valid JSON Vega-Lite chart specification (Wait to fill this in until recieving the output of the vegaLiteTool)",
         "table": String - "Markdown table to be rendered in react gfm if the user requests it, return only the markdown"
 
     Make sure to describe your final answer in a fully fleshed out thought that is a valid sentence.
