@@ -461,22 +461,20 @@ async def query_openai(request: QueryRequest):
             # make work for table tool too 
             if function_to_call:
                 result = function_to_call(**action_input)
-                print_blue("Result: ", str(result))
                 observation = f"Observation: action name: {action_name}, action_input: {json.dumps(action_input)}, result: {result['description']}"
                 messages.append({"role": "assistant", "content": observation})
 
             # Check for chart specification 
             if "chartSpec" in result and tool_map.get(action_name) == vegaLiteTool:
                 chartSpec = result['chartSpec']
-                print_blue("Chart Spec: ", str(chartSpec))
 
+            # Check for table
             if "table" in result and tool_map.get(action_name) == tableTool:
                 table = result['table']
                 break
         
-        if not match:
-            # Check for final answer 
-            if "Final Answer" in response_message:
+            # Check for final answer
+            if "no tool" in result['action']:
                 final_answer = str(json.loads(response_message)["Final Answer"])
                 description = final_answer
 
