@@ -381,18 +381,15 @@ def chat(messages):
 @app.post("/query/", response_model=QueryResponse)
 async def query_openai(request: QueryRequest):
     global core_data
+    messages = []
     core_data = pd.DataFrame(request.data)
 
     # Extract the columns and their types from the dataset
     columns = core_data.columns
-    column_types = {
-        col: "categorical" if core_data[col].dtype == "object" else "quantitative"
-        for col in columns
-    }
 
     # Define a ReAct assistant prompt 
     system_prompt = f'''
-        You are a data assistant with access to a dataset containing the following columns: {column_types}.
+        You are a data assistant with access to a dataset containing the following columns: {columns}.
         Utilize the tools provided: {tools}, to answer user queries.
 
         Workflow:
@@ -414,8 +411,6 @@ async def query_openai(request: QueryRequest):
             "Action Input": {{"arg name": "arg value"}},
             "Observation": "Result of the action chosen above, wait to fill in until you have the output.",
             "Final Answer": "Comprehensive answer to the query.",
-            "chartSpec": {"dict"},  Fill in after receiving the output of vegaLiteTool - should be the EXACT 'chartSpec' output from the tool
-            "table": ""  Markdown table to be rendered, fill in after receiving the output of the tableTool
 
         Note: Do not fill any of these in until you have recieved the output of your chosen action, only fill out fields that are relevant. 
         All fields must be present, even if they are empty strings or an empty dict. 
@@ -442,13 +437,14 @@ async def query_openai(request: QueryRequest):
     # ReAct loop 
     while iteration < max_iterations:
         response_message = chat(messages)
-        print_red("Response: ", response_message)
         messages.append({"role": "assistant", "content": response_message})
 
         match = re.search(r'"Action"\s*:\s*"([^"]+)",\s*"Action Input"\s*:\s*(\{[^}]+\})', response_message)
         if match:
             action_name = match.group(1)
             if action_name == "no tool":
+                final_answer = str(json.loads(response_message)["Final Answer"])
+                description = final_answer
                 break  # Stop if no tool is needed
 
             action_input = json.loads(match.group(2))
@@ -461,7 +457,7 @@ async def query_openai(request: QueryRequest):
             # make work for table tool too 
             if function_to_call:
                 result = function_to_call(**action_input)
-                observation = f"Observation: action name: {action_name}, action_input: {json.dumps(action_input)}, result: {result['description']}"
+                observation = f"Observation: action name: {action_name}, action_input: {request.prompt}, result: {result['description']}"
                 messages.append({"role": "assistant", "content": observation})
 
             # Check for chart specification 
@@ -472,11 +468,6 @@ async def query_openai(request: QueryRequest):
             if "table" in result and tool_map.get(action_name) == tableTool:
                 table = result['table']
                 break
-        
-            # Check for final answer
-            if "no tool" in result['action']:
-                final_answer = str(json.loads(response_message)["Final Answer"])
-                description = final_answer
 
         iteration += 1
 
