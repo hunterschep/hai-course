@@ -1,15 +1,15 @@
 {
   "files": {
     "main.css": "/hai-course/static/css/main.e8decbab.css",
-    "main.js": "/hai-course/static/js/main.b82bfca4.js",
+    "main.js": "/hai-course/static/js/main.baa8a459.js",
     "static/js/453.419a5d54.chunk.js": "/hai-course/static/js/453.419a5d54.chunk.js",
     "index.html": "/hai-course/index.html",
     "main.e8decbab.css.map": "/hai-course/static/css/main.e8decbab.css.map",
-    "main.b82bfca4.js.map": "/hai-course/static/js/main.b82bfca4.js.map",
+    "main.baa8a459.js.map": "/hai-course/static/js/main.baa8a459.js.map",
     "453.419a5d54.chunk.js.map": "/hai-course/static/js/453.419a5d54.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.e8decbab.css",
-    "static/js/main.b82bfca4.js"
+    "static/js/main.baa8a459.js"
   ]
 }
