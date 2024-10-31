@@ -437,37 +437,52 @@ async def query_openai(request: QueryRequest):
     # ReAct loop 
     while iteration < max_iterations:
         response_message = chat(messages)
+        print_red(str(response_message))
         messages.append({"role": "assistant", "content": response_message})
 
-        match = re.search(r'"Action"\s*:\s*"([^"]+)",\s*"Action Input"\s*:\s*(\{[^}]+\})', response_message)
-        if match:
-            action_name = match.group(1)
+        try:
+            # Parse response as JSON to extract "Action" and "Action Input"
+            response_json = json.loads(response_message)
+
+            action_name = response_json.get("Action", "")
+            action_input = response_json.get("Action Input", {})
+
+            # Stop if no tool is needed and a final answer is present
             if action_name == "no tool":
-                final_answer = str(json.loads(response_message)["Final Answer"])
-                description = final_answer
-                break  # Stop if no tool is needed
+                final_answer = response_json.get("Final Answer", "").strip()
+                if final_answer:
+                    description = final_answer
+                    break
 
-            action_input = json.loads(match.group(2))
-            logger.info(f"Model selected tool: {action_name}")
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decoding failed: {e}")
+            break  # Exit loop if JSON is not well-formed
 
-            function_to_call = tool_map.get(action_name)
-            if action_name == "vegaLiteTool" or action_name == "dataAnalysisTool":
-                action_input["request"] = request.model_dump()
+        # Log selected tool and action input
+        logger.info(f"Model selected tool: {action_name}")
 
-            # make work for table tool too 
-            if function_to_call:
-                result = function_to_call(**action_input)
-                observation = f"Observation: action name: {action_name}, action_input: {request.prompt}, result: {result['description']}"
-                messages.append({"role": "assistant", "content": observation})
+        # Process other tools if action_name is not "no tool"
+        function_to_call = tool_map.get(action_name)
+        if action_name in ["vegaLiteTool", "dataAnalysisTool"]:
+            action_input["request"] = request.model_dump()
 
-            # Check for chart specification 
-            if "chartSpec" in result and tool_map.get(action_name) == vegaLiteTool:
+        if function_to_call:
+            # Call the function and parse the result as JSON
+            result = function_to_call(**action_input)
+
+            # Construct the observation string
+            observation = f"Observation: action name: {action_name}, action_input: {request.prompt}, result: result: {result['description']}"
+            print_blue(str(observation))
+            messages.append({"role": "assistant", "content": observation})
+
+            # Check for chartSpec in result_json
+            if "chartSpec" in result and function_to_call == vegaLiteTool:
                 chartSpec = result['chartSpec']
 
-            # Check for table
-            if "table" in result and tool_map.get(action_name) == tableTool:
+            # Check for table in result_json
+            if "table" in result and function_to_call == tableTool:
                 table = result['table']
-                break
+                
 
         iteration += 1
 
@@ -477,6 +492,7 @@ async def query_openai(request: QueryRequest):
         table=table,
         chartSpec=chartSpec
     )
+
 
 # Root endpoint
 @app.get("/")

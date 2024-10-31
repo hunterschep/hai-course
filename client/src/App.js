@@ -74,8 +74,12 @@ function App() {
     );
 
     useEffect(() => {
-        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        const timeout = setTimeout(() => {
+            chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        }, 100); // slight delay to allow DOM updates
+        return () => clearTimeout(timeout); // clean up on unmount
     }, [chatHistory]);
+    
 
     const VegaLiteWithErrorHandling = ({ spec }) => {
         try {
